@@ -23,7 +23,6 @@
             <url>https://repo.papermc.io/repository/maven-public/</url>
         </repository>
 
-
         <repository>
             <id>jitpack.io</id>
             <url>https://jitpack.io</url>
@@ -63,6 +62,7 @@
                 <version>3.6.2</version>
                 <configuration>
                     <minimizeJar>true</minimizeJar>
+
                     <relocations>
                         <relocation>
                             <pattern>org.bstats</pattern>
@@ -83,8 +83,8 @@
                             </excludes>
                         </filter>
                     </filters>
-
                 </configuration>
+
                 <executions>
                     <execution>
                         <phase>package</phase>
@@ -111,12 +111,14 @@
             <version>${slimefun.version}</version>
             <scope>provided</scope>
         </dependency>
+
         <dependency>
             <groupId>com.google.code.findbugs</groupId>
             <artifactId>jsr305</artifactId>
             <version>3.0.2</version>
             <scope>provided</scope>
         </dependency>
+
         <dependency>
             <groupId>org.bstats</groupId>
             <artifactId>bstats-bukkit</artifactId>
@@ -128,13 +130,6 @@
             <groupId>com.github.slimefunguguproject</groupId>
             <artifactId>ExtraUtils</artifactId>
             <version>bf89aee6ae</version>
-        </dependency>
-
-        <dependency>
-            <groupId>net.guizhanss</groupId>
-            <artifactId>GuizhanLibPlugin</artifactId>
-            <version>2.3.0</version>
-            <scope>provided</scope>
         </dependency>
     </dependencies>
 </project>
