@@ -1,7 +1,5 @@
 package net.guizhanss.fluffymachines.utils;
 
-import net.guizhanss.guizhanlib.common.utils.StringUtil;
-
 import java.util.Locale;
 
 public final class MetalUtils {
@@ -20,7 +18,41 @@ public final class MetalUtils {
             case "ALUMINUM" -> "Aluminum";
             case "ZINC" -> "Zinc";
             case "MAGNESIUM" -> "Magnesium";
-            default -> StringUtil.humanize(type);
+            default -> humanize(type);
         };
+    }
+
+    /**
+     * Converts an enum/key-style value into a readable English name.
+     */
+    private static String humanize(String value) {
+        if (value == null) {
+            throw new IllegalArgumentException("The string cannot be null");
+        }
+
+        String normalized = value
+            .toLowerCase(Locale.ROOT)
+            .replace(' ', '_')
+            .replace('-', '_');
+
+        StringBuilder result = new StringBuilder();
+
+        for (String word : normalized.split("_+")) {
+            if (word.isEmpty()) {
+                continue;
+            }
+
+            if (!result.isEmpty()) {
+                result.append(' ');
+            }
+
+            result.append(Character.toUpperCase(word.charAt(0)));
+
+            if (word.length() > 1) {
+                result.append(word.substring(1));
+            }
+        }
+
+        return result.toString();
     }
 }
