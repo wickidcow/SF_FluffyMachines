@@ -5,6 +5,8 @@ on:
     branches:
       - main
       - master
+    tags:
+      - 'v*'
   pull_request:
     branches:
       - main
@@ -12,7 +14,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -168,12 +170,35 @@ jobs:
       - name: Build and verify
         run: mvn -B clean verify --file pom.xml
 
-      - name: Upload compiled plugin JAR
+      - name: Stage SF_FluffyMachines.jar
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          mapfile -t jars < <(find target -maxdepth 1 -type f -name '*.jar' ! -name 'original-*')
+          test "${#jars[@]}" -eq 1
+          cp "${jars[0]}" dist/SF_FluffyMachines.jar
+          test -s dist/SF_FluffyMachines.jar
+          sha256sum dist/SF_FluffyMachines.jar
+
+      - name: Upload SF_FluffyMachines.jar
         uses: actions/upload-artifact@v4
         with:
-          name: FluffyMachines-${{ github.run_number }}
-          path: |
-            target/*.jar
-            !target/original-*.jar
+          name: SF_FluffyMachines
+          path: dist/SF_FluffyMachines.jar
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish direct JAR release asset
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          TAG="$GITHUB_REF_NAME"
+          JAR="dist/SF_FluffyMachines.jar"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$JAR" --clobber
+          else
+            gh release create "$TAG" "$JAR" --generate-notes --title "FluffyMachines $TAG"
+          fi
