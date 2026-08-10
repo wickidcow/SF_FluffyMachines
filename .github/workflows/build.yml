@@ -16,6 +16,9 @@ on:
 permissions:
   contents: write
 
+env:
+  LEGACY_ARTIFACT_VERSION: "1.0.0"
+
 jobs:
   build:
     name: Build with Java 25
@@ -170,22 +173,23 @@ jobs:
       - name: Build and verify
         run: mvn -B clean verify --file pom.xml
 
-      - name: Stage SF_FluffyMachines.jar
+      - name: Stage versioned Legacy JAR
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist
           mapfile -t jars < <(find target -maxdepth 1 -type f -name '*.jar' ! -name 'original-*')
           test "${#jars[@]}" -eq 1
-          cp "${jars[0]}" dist/SF_FluffyMachines.jar
-          test -s dist/SF_FluffyMachines.jar
-          sha256sum dist/SF_FluffyMachines.jar
+          OUTPUT="dist/SF_FluffyMachines_Legacy_v${LEGACY_ARTIFACT_VERSION}.jar"
+          cp "${jars[0]}" "$OUTPUT"
+          test -s "$OUTPUT"
+          sha256sum "$OUTPUT"
 
-      - name: Upload SF_FluffyMachines.jar
-        uses: actions/upload-artifact@v4
+      - name: Upload direct versioned Legacy JAR
+        uses: actions/upload-artifact@v7
         with:
-          name: SF_FluffyMachines
-          path: dist/SF_FluffyMachines.jar
+          path: dist/SF_FluffyMachines_Legacy_v${{ env.LEGACY_ARTIFACT_VERSION }}.jar
+          archive: false
           if-no-files-found: error
           retention-days: 30
 
@@ -196,7 +200,7 @@ jobs:
         shell: bash
         run: |
           TAG="$GITHUB_REF_NAME"
-          JAR="dist/SF_FluffyMachines.jar"
+          JAR="dist/SF_FluffyMachines_Legacy_v${LEGACY_ARTIFACT_VERSION}.jar"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$JAR" --clobber
           else
