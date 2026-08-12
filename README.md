@@ -1,93 +1,85 @@
-# FluffyMachines — Albion 26.2+ English Legacy Build
+<div align="center">
 
-FluffyMachines is a Slimefun addon containing automation machines, portable tools, storage blocks, cargo utilities, and multiblocks.
+# 🧸⚙️ FluffyMachines — Slimefun Legacy
 
-This maintenance branch targets **Paper 26.2+**, **Java 25**, and Slimefun Legacy cores derived from the **SlimefunGuguProject** storage/backpack line. Existing FluffyMachines item IDs remain unchanged.
+**Automation machines, portable tools, storage, Cargo utilities, travel, and multiblocks.**
 
-## Full English conversion
+![Slimefun Legacy](https://img.shields.io/badge/Slimefun-Legacy-6bd425?style=for-the-badge)
+![Paper 26.2+](https://img.shields.io/badge/Paper-26.2%2B-blue?style=for-the-badge)
+![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue?style=for-the-badge)
+![Maintained for AlbionMC.com](https://img.shields.io/badge/Maintained%20for-albionmc.com-7b68ee?style=for-the-badge)
 
-The conversion is applied in the addon source instead of depending on a packet translator:
+</div>
 
-- item names and lore;
-- guide categories;
-- machine titles, buttons, status messages, and errors;
-- recipe ingredients, recipe-selection displays, and recipe-help screens;
-- command and console messages;
-- multiblock feedback;
-- issue templates and documentation.
+> [!IMPORTANT]
+> FluffyMachines Legacy is an **unofficial community-maintained fork** for Slimefun Legacy. It is developed and maintained for use on **albionmc.com** while preserving the original addon identity and item IDs.
 
-## Included maintenance repairs
+## 🛠️ What does FluffyMachines do?
 
-- Reworked Dolly pickup and placement for modern asynchronous backpack storage.
-- Supports normal, trapped, copper, single, double, locked, and custom-named chests.
-- Checks protection and Slimefun storage data on both halves of a double chest.
-- Preserves all chest inventory contents and rolls back failed transfers.
-- Clears the backing Dolly backpack only after successful placement.
-- Replaced the fixed Dolly timeout with a per-player in-progress transaction lock.
-- Uses Slimefun Legacy’s relocated Dough API at `io.github.thebusybiscuit.slimefun4.libraries.dough`, matching the target core’s shaded public types.
-- Updated backpack saves to the current snapshot-based API.
-- Prevented asynchronous Bukkit inventory mutation in the Backpack Loader and Unloader.
-- Prevented the Backpack Unloader from clearing an item before confirming output capacity.
-- Fixed Fluffy Barrel metadata matching for metadata-free items.
-- Carried forward newer Auto Ancient Altar broken-spawner handling.
-- Prevented Portable Chargers from charging another Portable Charger.
-- Removed the Java 25 annotation-processing dependency by replacing all Lombok-generated code with explicit Java.
-- Updated removed Paper 26.2 particle, potion-effect, explosion-event, and block-effect APIs.
-- Added additional null/legacy-item guards for recipe keys, Warp Pad Configurators, Watering Cans, and Smart Factory displays.
+FluffyMachines adds a large toolbox of automation and convenience content to Slimefun.
 
-See [PATCH_NOTES.md](PATCH_NOTES.md) for technical details.
+### ⚙️ Machines
 
-## Optional mcMMO integration
+Auto Crafting Table, Auto Enhanced Crafting Table, Auto Armor Forge, Auto Magic Workbench, Auto Ancient Altar, Auto Table Saw, Water Sprinkler, Backpack Loader/Unloader, Advanced Auto Disenchanter, Electric Dust Fabricator/Recycler, Advanced Charging Bench, Smart Factory, and more.
 
-mcMMO remains listed under `softdepend` and is detected at runtime. FluffyMachines dynamically registers its mcMMO ability listener only when mcMMO is installed and enabled. The project no longer declares mcMMO as a Maven dependency, so transient CodeMC failures cannot block normal builds. Servers without mcMMO require no extra configuration.
+### 📦 Storage, Cargo & travel
 
-## Building
+Mini Fluffy Barrel, multiple Fluffy Barrel tiers, Ender Chest Insertion/Extraction Nodes, Cargo Manipulator, Dolly, Warp Pads, and alternate Elevator Plates.
 
-Paper 26.2 uses Java 25. Maven is configured to resolve the newest available 26.2+ Paper API build:
+### 🧰 Tools & multiblocks
 
-```bash
-mvn -B clean verify
-```
+Portable Chargers, Fluffy Wrenches, improved explosive tools, Lumber Axe, Scythe, Paxel, Watering Can, Crank Generator, Foundry, and Superheated Furnace.
 
-The default Slimefun dependency coordinates are configurable. To compile against a separately published Albion Legacy artifact:
+## 🧪 Slimefun Legacy maintenance
 
-```bash
-mvn -B clean verify \
-  -Dslimefun.groupId=your.maven.group \
-  -Dslimefun.artifactId=Slimefun-Legacy \
-  -Dslimefun.version=your-version
-```
+This branch keeps the addon English-first and maintains it for modern Paper/Slimefun Legacy servers. Important compatibility work includes:
 
-For a core JAR that is not published to a Maven repository, install it locally first using the same coordinates, then run the command above.
+- modern asynchronous backpack-storage handling for the Dolly;
+- support for normal, trapped, copper, double, locked, and custom-named chests where supported;
+- double-chest protection checks and transfer rollback;
+- safe backing-backpack cleanup only after successful placement;
+- main-thread-safe Bukkit inventory mutations;
+- Backpack Unloader output-capacity safety;
+- Fluffy Barrel metadata matching repairs;
+- newer Auto Ancient Altar broken-spawner handling;
+- Portable Charger self-charging protection;
+- removal of Lombok/annotation-processor dependence;
+- modern Paper particle, potion, explosion, block-effect, and item API updates;
+- optional mcMMO integration without making mcMMO a build/runtime requirement;
+- preservation of existing Slimefun IDs and plugin identity wherever practical.
 
-## Main content
+See `PATCH_NOTES.md` and `VALIDATION.md` for deeper technical history and testing notes.
 
-### Machines
+## ❤️ Credits & project lineage
 
-Auto Crafting Table, Auto Enhanced Crafting Table, Auto Armor Forge, Auto Magic Workbench, Auto Ancient Altar, Auto Table Saw, Water Sprinkler, Backpack Loader/Unloader, Advanced Auto Disenchanter, Electric Dust Fabricator/Recycler, Advanced Charging Bench, and Smart Factory.
+- **NCBPFluffyBear** — original creator of **FluffyMachines** and the addon design/content this fork preserves.
+- **NCBPFluffyBear/FluffyMachines** — original source repository.
+- **SlimefunGuguProject/FluffyMachines** — immediate upstream fork from which this repository was forked and an important source of later compatibility maintenance.
+- **FluffyMachines and Slimefun community contributors** — fixes, translations, APIs, testing, and maintenance over the project's lifetime.
+- **wickidcow / Slimefun Legacy** — current English-first compatibility and preservation work for modern servers and albionmc.com.
 
-Auto Crafter inputs support a complete one-shot recipe with one item per occupied slot. For cargo automation, keep one template item in each occupied stackable slot and feed additional ingredients.
+This fork keeps upstream attribution intentionally visible. It is not a claim that the maintenance fork created the original addon.
 
-### Storage, cargo, and travel
+## 📜 GNU General Public License v3.0
 
-Mini Fluffy Barrel, six Fluffy Barrel tiers, Ender Chest Insertion/Extraction Nodes, Cargo Manipulator, Dolly, Warp Pads, and Alternate Elevator Plates.
+FluffyMachines is licensed under the **GNU General Public License v3.0 (GPLv3)**. The complete license is included as `LICENSE.txt`.
 
-### Tools and multiblocks
+If you distribute the plugin or a modified GPL-covered version, comply with GPLv3, including preserving applicable notices, identifying modified versions, licensing covered modified source under GPLv3, and providing the required Corresponding Source when distributing object code.
 
-Portable Chargers, Fluffy Wrenches, improved explosive tools, improved Lumber Axe, Scythe, Paxel, Watering Can, Crank Generator, Foundry, and Superheated Furnace.
+The software is provided **without warranty** as described by GPLv3.
 
-## Credits
+## ⚖️ Independence & trademark notice
 
-Original addon by NCBPFluffyBear. This branch keeps the original addon identity and item IDs while integrating later upstream/Gugu maintenance work and Albion-specific compatibility repairs.
+**NOT AN OFFICIAL MINECRAFT PRODUCT. NOT APPROVED BY OR ASSOCIATED WITH MOJANG OR MICROSOFT.**
 
+FluffyMachines, Slimefun Legacy, and this maintenance fork are independent community projects. They are not sponsored, endorsed, approved, or operated by Mojang Studios or Microsoft. Minecraft-related names, brands, and assets remain the property of their respective rights holders.
 
-## 26.2.4 source compatibility update
+This repository is not represented as an official release of NCBPFluffyBear, the SlimefunGuguProject, the original Slimefun developers, or any other upstream party unless explicitly stated by them.
 
-- Uses the Gugu 2025.1 `IAsyncReadCallback` overloads for Dolly backpack reads.
-- Removes unsupported one-argument `ProfileDataController#getBackpackAsync` calls.
-- Removes removal-pending `ItemStackHelper` and `Effect.VILLAGER_PLANT_GROW` usage.
-- Keeps all chest and inventory mutations on the primary server thread.
+---
 
-## 26.2.5 copper chest support
+<div align="center">
 
-Dollies can move vanilla copper chests introduced in modern Minecraft/Paper builds. All oxidation and waxed variants are accepted, and the exact variant is restored when placed. Double copper chests retain the stored material for each half.
+**🧸 Small name. Huge toolbox. Keep FluffyMachines running. ⚙️**
+
+</div>
