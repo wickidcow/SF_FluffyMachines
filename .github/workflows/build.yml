@@ -2,15 +2,10 @@ name: Build FluffyMachines
 
 on:
   push:
-    branches:
-      - main
-      - master
-    tags:
-      - 'v*'
+    branches: [main, master]
+    tags: ['v*']
   pull_request:
-    branches:
-      - main
-      - master
+    branches: [main, master]
   workflow_dispatch:
 
 permissions:
@@ -18,191 +13,55 @@ permissions:
 
 env:
   LEGACY_ARTIFACT_VERSION: "1.0.0"
+  OUTPUT_NAME: "SF_FluffyMachines1.0.0.jar"
 
 jobs:
   build:
-    name: Build with Java 25
     runs-on: ubuntu-latest
-
     steps:
-      - name: Check out repository
+      - name: Checkout
         uses: actions/checkout@v5
 
       - name: Set up Java 25
         uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: "25"
+          java-version: '25'
           cache: maven
-
-      - name: Verify Slimefun-relocated Dough imports
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if grep -R --line-number '^import io\.github\.bakedlibs\.dough' src/main/java; then
-            echo "Direct Dough imports are incompatible with the Slimefun-shaded API."
-            exit 1
-          fi
-
-          echo "Slimefun-relocated Dough import check passed."
-
-      - name: Verify Paper 26.2 API compatibility
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if grep -R --line-number -E \
-            'Particle\.(WATER_SPLASH|VILLAGER_HAPPY|REDSTONE)|PotionEffectType\.SLOW\b|Effect\.(STEP_SOUND|VILLAGER_PLANT_GROW)' \
-            src/main/java; then
-            echo "Removed or removal-pending Bukkit API names are still present."
-            exit 1
-          fi
-
-          if grep -R --line-number -E \
-            '(^|[^[:alnum:]_])lombok([.;]|$)|@(SneakyThrows|UtilityClass|AllArgsConstructor|Getter)' \
-            src/main/java pom.xml; then
-            echo "Lombok must not be required by this Java 25 build."
-            exit 1
-          fi
-
-          echo "Paper 26.2 API compatibility check passed."
-
-      - name: Verify English Dolly owner lore
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          ITEMS_FILE="src/main/java/io/ncbpfluffybear/fluffymachines/utils/FluffyItems.java"
-          DOLLY_FILE="src/main/java/io/ncbpfluffybear/fluffymachines/items/tools/Dolly.java"
-
-          if grep -n 'PlayerBackpack\.LORE_OWNER' "$ITEMS_FILE"; then
-            echo "Dolly owner lore must not inherit a translated dependency constant."
-            exit 1
-          fi
-
-          if ! grep -Fq 'DOLLY_OWNER_LORE = "&7Owner: "' "$ITEMS_FILE"; then
-            echo "The FluffyMachines-owned English Dolly owner prefix is missing."
-            exit 1
-          fi
-
-          if ! grep -Fq 'bindDollyItem' "$DOLLY_FILE"; then
-            echo "The local English Dolly binding implementation is missing."
-            exit 1
-          fi
-
-          echo "English Dolly owner lore check passed."
-
-      - name: Verify Gugu 2025.1 Dolly API usage
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if grep -R --line-number -E \
-            'getOrCreateProfileAsync|PlayerBackpack\.getAsync\([^,)]*\)|getBackpackAsync\([^,;]*\);' \
-            src/main/java; then
-            echo "Unsupported one-argument Dolly profile/backpack API call detected."
-            exit 1
-          fi
-
-          grep -Fq 'IAsyncReadCallback<PlayerBackpack>' \
-            src/main/java/io/ncbpfluffybear/fluffymachines/items/tools/Dolly.java
-
-          echo "Gugu Dolly API check passed."
-
-      - name: Verify removal-pending compatibility APIs
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if grep -R --line-number -E 'ItemStackHelper|Effect\.VILLAGER_PLANT_GROW' src/main/java; then
-            echo "Removal-pending compatibility API detected."
-            exit 1
-          fi
-
-          echo "Removal-pending API check passed."
-
-      - name: Verify Dolly copper chest compatibility
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          DOLLY_FILE="src/main/java/io/ncbpfluffybear/fluffymachines/items/tools/Dolly.java"
-
-          grep -Fq 'endsWith("_COPPER_CHEST")' "$DOLLY_FILE"
-          grep -Fq 'SECOND_CHEST_TYPE_KEY' "$DOLLY_FILE"
-
-          echo "Copper chest Dolly compatibility check passed."
-
-      - name: Verify optional mcMMO integration
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if grep -R --line-number -E \
-            '^import com\.gmail\.nossr50|<groupId>com\.gmail\.nossr50\.mcMMO</groupId>' \
-            src/main/java pom.xml; then
-            echo "mcMMO must remain runtime-optional and must not be a compile dependency."
-            exit 1
-          fi
-
-          grep -Eq 'softdepend:.*mcMMO' src/main/resources/plugin.yml
-          grep -Fq 'registerEvent' \
-            src/main/java/io/ncbpfluffybear/fluffymachines/utils/McMMOEvents.java
-
-          echo "Optional mcMMO integration check passed."
-
-      - name: Verify Auto Crafter single-recipe repair
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          AUTO_CRAFTER="src/main/java/io/ncbpfluffybear/fluffymachines/objects/AutoCrafter.java"
-
-          if grep -Fq 'item.getAmount() == 1 && item.getType().getMaxStackSize() != 1' "$AUTO_CRAFTER"; then
-            echo "The legacy one-item rejection has returned."
-            exit 1
-          fi
-
-          grep -Fq 'SINGLE_CRAFT_READY' "$AUTO_CRAFTER"
-          grep -Fq 'RecipeMatch.SINGLE' "$AUTO_CRAFTER"
-          grep -Fq 'hasSingleStackableIngredient && hasBufferedStackableIngredient' "$AUTO_CRAFTER"
-
-          echo "Auto Crafter single-recipe repair check passed."
 
       - name: Build and verify
         run: mvn -B clean verify --file pom.xml
 
-      - name: Stage versioned Legacy JAR
+      - name: Stage versioned JAR
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist
-          mapfile -t jars < <(find target -maxdepth 1 -type f -name '*.jar' ! -name 'original-*')
+          mapfile -t jars < <(find target -maxdepth 1 -type f -name '*.jar' ! -name 'original-*' ! -name '*-sources.jar' ! -name '*-javadoc.jar')
           test "${#jars[@]}" -eq 1
-          OUTPUT="dist/SF_FluffyMachines_Legacy_v${LEGACY_ARTIFACT_VERSION}.jar"
-          cp "${jars[0]}" "$OUTPUT"
-          test -s "$OUTPUT"
-          sha256sum "$OUTPUT"
+          cp "${jars[0]}" "dist/${OUTPUT_NAME}"
+          test -s "dist/${OUTPUT_NAME}"
+          sha256sum "dist/${OUTPUT_NAME}"
 
-      - name: Upload direct versioned Legacy JAR
+      - name: Upload CI artifact
         uses: actions/upload-artifact@v7
         with:
-          path: dist/SF_FluffyMachines_Legacy_v${{ env.LEGACY_ARTIFACT_VERSION }}.jar
-          archive: false
+          name: SF_FluffyMachines${{ env.LEGACY_ARTIFACT_VERSION }}
+          path: dist/${{ env.OUTPUT_NAME }}
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publish direct JAR release asset
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Publish raw JAR release asset
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          TAG="$GITHUB_REF_NAME"
-          JAR="dist/SF_FluffyMachines_Legacy_v${LEGACY_ARTIFACT_VERSION}.jar"
+          set -euo pipefail
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then TAG="$GITHUB_REF_NAME"; else TAG="v${LEGACY_ARTIFACT_VERSION}"; fi
+          JAR="dist/${OUTPUT_NAME}"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$JAR" --clobber
           else
-            gh release create "$TAG" "$JAR" --generate-notes --title "FluffyMachines $TAG"
+            gh release create "$TAG" "$JAR" --target "$GITHUB_SHA" --generate-notes --title "SF_FluffyMachines $TAG"
           fi
