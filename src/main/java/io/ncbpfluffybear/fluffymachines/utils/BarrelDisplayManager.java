@@ -3,6 +3,8 @@ package io.ncbpfluffybear.fluffymachines.utils;
 import com.xzavier0722.mc.plugin.slimefun4.storage.util.StorageCacheUtils;
 import io.ncbpfluffybear.fluffymachines.FluffyMachines;
 import io.ncbpfluffybear.fluffymachines.items.Barrel;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -18,6 +20,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.util.RayTraceResult;
+import org.bukkit.util.Transformation;
 import org.bukkit.util.Vector;
 
 import javax.annotation.Nonnull;
@@ -36,6 +39,8 @@ import java.util.UUID;
 public final class BarrelDisplayManager {
 
     private static final Map<String, DisplayState> STATES = new HashMap<>();
+    private static final float DISPLAY_SCALE = 0.50F;
+    private static final double HOVER_RADIUS = 0.34D;
     private static boolean initialized;
     private static NamespacedKey displayKey;
 
@@ -156,6 +161,11 @@ public final class BarrelDisplayManager {
         display.setItemStack(shownItem);
         display.setItemDisplayTransform(ItemDisplay.ItemDisplayTransform.FIXED);
         display.setBillboard(Display.Billboard.CENTER);
+
+        Transformation transformation = display.getTransformation();
+        transformation.getScale().set(DISPLAY_SCALE, DISPLAY_SCALE, DISPLAY_SCALE);
+        display.setTransformation(transformation);
+
         display.setGravity(false);
         display.setInvulnerable(true);
         display.setSilent(true);
@@ -216,30 +226,63 @@ public final class BarrelDisplayManager {
             }
 
             Block block = result.getHitBlock();
-            if (!(StorageCacheUtils.getSfItem(block.getLocation()) instanceof Barrel barrel)) {
+            if (!(StorageCacheUtils.getSfItem(block.getLocation()) instanceof Barrel barrel)
+                || !isLookingAtDisplay(player, block)) {
                 continue;
             }
 
             try {
                 int stored = barrel.getStored(block);
                 if (stored <= 0) {
-                    player.sendActionBar('&', "&6Fluffy Barrel &8• &cEmpty");
+                    player.sendActionBar(Component.text("Fluffy Barrel", NamedTextColor.GOLD)
+                        .append(Component.text(" • ", NamedTextColor.DARK_GRAY))
+                        .append(Component.text("Empty", NamedTextColor.RED)));
                     continue;
                 }
 
                 ItemStack item = barrel.getStoredItem(block);
                 if (item == null || item.getType() == Material.BARRIER || item.getType().isAir()) {
-                    player.sendActionBar('&', "&6Fluffy Barrel &8• &cEmpty");
+                    player.sendActionBar(Component.text("Fluffy Barrel", NamedTextColor.GOLD)
+                        .append(Component.text(" • ", NamedTextColor.DARK_GRAY))
+                        .append(Component.text("Empty", NamedTextColor.RED)));
                     continue;
                 }
 
-                String itemName = Utils.getViewableName(item);
                 String amount = String.format(Locale.US, "%,d", stored);
-                player.sendActionBar('&', "&f" + itemName + " &8• &e" + amount + " &7stored");
+                Component itemName = item.effectiveName();
+                player.sendActionBar(itemName
+                    .append(Component.text(" • ", NamedTextColor.DARK_GRAY))
+                    .append(Component.text(amount, NamedTextColor.YELLOW))
+                    .append(Component.text(" stored", NamedTextColor.GRAY)));
             } catch (RuntimeException ignored) {
                 // The Slimefun block data may still be loading during a chunk transition.
             }
         }
+    }
+
+    /**
+     * ItemDisplay entities deliberately have no normal interaction hitbox. Approximate
+     * item-frame-style hover targeting by checking whether the player's view ray passes
+     * through the small displayed icon on the barrel face.
+     */
+    private static boolean isLookingAtDisplay(@Nonnull Player player, @Nonnull Block block) {
+        Location eye = player.getEyeLocation();
+        Location target = getDisplayLocation(block, getDisplayFace(block));
+
+        Vector toTarget = target.toVector().subtract(eye.toVector());
+        double targetDistance = toTarget.length();
+        if (targetDistance <= 0.01D || targetDistance > 5.25D) {
+            return false;
+        }
+
+        Vector direction = eye.getDirection().normalize();
+        double projection = toTarget.dot(direction);
+        if (projection <= 0.0D) {
+            return false;
+        }
+
+        Vector closestPoint = eye.toVector().add(direction.multiply(projection));
+        return closestPoint.distanceSquared(target.toVector()) <= HOVER_RADIUS * HOVER_RADIUS;
     }
 
     private static void pruneStateCache() {
