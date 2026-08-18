@@ -67,8 +67,9 @@ public final class BarrelItemFrameListener implements Listener {
             return;
         }
 
+        BlockMenuPreset currentPreset = BlockMenuPreset.getPreset(currentItem.getId());
         BlockMenu currentMenu = StorageCacheUtils.getMenu(attachedBlock.getLocation());
-        if (currentMenu != null) {
+        if (currentPreset != null && currentMenu != null && currentPreset.canOpen(attachedBlock, player)) {
             currentMenu.open(player);
         }
     }
