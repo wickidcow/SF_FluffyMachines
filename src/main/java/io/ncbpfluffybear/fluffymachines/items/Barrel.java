@@ -15,6 +15,7 @@ import io.github.thebusybiscuit.slimefun4.libraries.dough.items.CustomItemStack;
 import io.github.thebusybiscuit.slimefun4.utils.ChestMenuUtils;
 import io.ncbpfluffybear.fluffymachines.objects.DoubleHologramOwner;
 import io.ncbpfluffybear.fluffymachines.objects.NonHopperableBlock;
+import io.ncbpfluffybear.fluffymachines.utils.BarrelDisplayManager;
 import io.ncbpfluffybear.fluffymachines.utils.Utils;
 import me.mrCookieSlime.CSCoreLibPlugin.general.Inventory.ClickAction;
 import me.mrCookieSlime.Slimefun.Objects.handlers.BlockTicker;
@@ -158,6 +159,7 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
                         if (unKeyed.getType() == Material.BARRIER) {
                             setStored(b, 0);
                             updateMenu(b, inv, true, capacity);
+                            BarrelDisplayManager.remove(b);
                             return;
                         }
 
@@ -200,6 +202,10 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
                         removeHologram(b);
                     }
 
+                }
+
+                if (!e.isCancelled()) {
+                    BarrelDisplayManager.remove(b);
                 }
             }
         };
@@ -284,6 +290,7 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
             @Override
             public void tick(Block b, SlimefunItem sf, SlimefunBlockData data) {
                 Barrel.this.tick(b);
+                BarrelDisplayManager.update(b, Barrel.this);
             }
 
             @Override
@@ -296,6 +303,7 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
     @Override
     public void postRegister() {
         addWikiPage(WIKI_PAGE);
+        BarrelDisplayManager.initialize();
     }
     protected void tick(Block b) {
         BlockMenu inv = StorageCacheUtils.getMenu(b.getLocation());
