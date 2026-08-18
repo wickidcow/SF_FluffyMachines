@@ -6,7 +6,6 @@ import io.ncbpfluffybear.fluffymachines.items.Barrel;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
-import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
@@ -123,16 +122,8 @@ public final class BarrelHoverNameManager {
         }
 
         try {
-            if (barrel.getStored(block) <= 0) {
-                return null;
-            }
-
-            ItemStack item = barrel.getStoredItem(block);
-            if (item == null || item.getType() == Material.BARRIER || item.getType().isAir()) {
-                return null;
-            }
-
-            return new HoverTarget(block, item);
+            BarrelDisplayManager.VisibleContents contents = BarrelDisplayManager.getVisibleContents(block, barrel);
+            return contents == null ? null : new HoverTarget(block, contents.item);
         } catch (RuntimeException ignored) {
             // Slimefun block data may still be loading during a chunk transition.
             return null;
