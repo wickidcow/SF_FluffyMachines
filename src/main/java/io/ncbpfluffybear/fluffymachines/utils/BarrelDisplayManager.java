@@ -18,6 +18,7 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.ItemDisplay;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.util.RayTraceResult;
 import org.bukkit.util.Transformation;
@@ -39,8 +40,7 @@ import java.util.UUID;
 public final class BarrelDisplayManager {
 
     private static final Map<String, DisplayState> STATES = new HashMap<>();
-    private static final float DISPLAY_SCALE = 0.33F;
-    private static final double HOVER_RADIUS = 0.40D;
+    private static final float DISPLAY_SCALE = 0.50F;
     private static boolean initialized;
     private static NamespacedKey displayKey;
 
@@ -227,7 +227,7 @@ public final class BarrelDisplayManager {
 
             Block block = result.getHitBlock();
             if (!(StorageCacheUtils.getSfItem(block.getLocation()) instanceof Barrel barrel)
-                || !isLookingAtDisplay(player, block)) {
+                || !isInsideFrontHoverZone(result, block)) {
                 continue;
             }
 
@@ -249,7 +249,7 @@ public final class BarrelDisplayManager {
                 }
 
                 String amount = String.format(Locale.US, "%,d", stored);
-                Component itemName = item.effectiveName();
+                Component itemName = getActualItemName(item);
                 player.sendActionBar(itemName
                     .append(Component.text(" • ", NamedTextColor.DARK_GRAY))
                     .append(Component.text(amount, NamedTextColor.YELLOW))
@@ -261,28 +261,53 @@ public final class BarrelDisplayManager {
     }
 
     /**
-     * ItemDisplay entities deliberately have no normal interaction hitbox. Approximate
-     * item-frame-style hover targeting with a generous center zone covering about half
-     * of the barrel face, independent of the smaller visual icon size.
+     * Uses the actual block ray-trace hit instead of approximating the ItemDisplay's
+     * position in space. The center 50% of the barrel's display face acts as the hover
+     * target, which is forgiving without making the whole block trigger the label.
      */
-    private static boolean isLookingAtDisplay(@Nonnull Player player, @Nonnull Block block) {
-        Location eye = player.getEyeLocation();
-        Location target = getDisplayLocation(block, getDisplayFace(block));
-
-        Vector toTarget = target.toVector().subtract(eye.toVector());
-        double targetDistance = toTarget.length();
-        if (targetDistance <= 0.01D || targetDistance > 5.25D) {
+    private static boolean isInsideFrontHoverZone(@Nonnull RayTraceResult result, @Nonnull Block block) {
+        BlockFace face = getDisplayFace(block);
+        if (result.getHitBlockFace() != face) {
             return false;
         }
 
-        Vector direction = eye.getDirection().normalize();
-        double projection = toTarget.dot(direction);
-        if (projection <= 0.0D) {
-            return false;
+        Vector hit = result.getHitPosition();
+        double localX = hit.getX() - block.getX();
+        double localY = hit.getY() - block.getY();
+        double localZ = hit.getZ() - block.getZ();
+
+        return switch (face) {
+            case NORTH, SOUTH -> inCenterHalf(localX) && inCenterHalf(localY);
+            case EAST, WEST -> inCenterHalf(localZ) && inCenterHalf(localY);
+            case UP, DOWN -> inCenterHalf(localX) && inCenterHalf(localZ);
+            default -> false;
+        };
+    }
+
+    private static boolean inCenterHalf(double coordinate) {
+        return coordinate >= 0.25D && coordinate <= 0.75D;
+    }
+
+    /**
+     * Returns the name Minecraft actually associates with the stored item while
+     * preserving its Adventure colors and styles. Custom names take precedence,
+     * followed by the modern item-name component, then the vanilla effective name.
+     */
+    @Nonnull
+    private static Component getActualItemName(@Nonnull ItemStack item) {
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            Component customName = meta.customName();
+            if (customName != null) {
+                return customName;
+            }
+
+            if (meta.hasItemName()) {
+                return meta.itemName();
+            }
         }
 
-        Vector closestPoint = eye.toVector().add(direction.multiply(projection));
-        return closestPoint.distanceSquared(target.toVector()) <= HOVER_RADIUS * HOVER_RADIUS;
+        return item.effectiveName();
     }
 
     private static void pruneStateCache() {
