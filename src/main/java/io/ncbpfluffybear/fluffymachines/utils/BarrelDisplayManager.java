@@ -39,8 +39,8 @@ import java.util.UUID;
 public final class BarrelDisplayManager {
 
     private static final Map<String, DisplayState> STATES = new HashMap<>();
-    private static final float DISPLAY_SCALE = 0.50F;
-    private static final double HOVER_RADIUS = 0.34D;
+    private static final float DISPLAY_SCALE = 0.33F;
+    private static final double HOVER_RADIUS = 0.40D;
     private static boolean initialized;
     private static NamespacedKey displayKey;
 
@@ -262,8 +262,8 @@ public final class BarrelDisplayManager {
 
     /**
      * ItemDisplay entities deliberately have no normal interaction hitbox. Approximate
-     * item-frame-style hover targeting by checking whether the player's view ray passes
-     * through the small displayed icon on the barrel face.
+     * item-frame-style hover targeting with a generous center zone covering about half
+     * of the barrel face, independent of the smaller visual icon size.
      */
     private static boolean isLookingAtDisplay(@Nonnull Player player, @Nonnull Block block) {
         Location eye = player.getEyeLocation();
