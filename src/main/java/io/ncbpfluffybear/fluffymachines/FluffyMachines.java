@@ -8,6 +8,7 @@ import io.github.thebusybiscuit.slimefun4.api.player.PlayerProfile;
 import io.github.thebusybiscuit.slimefun4.implementation.Slimefun;
 import io.github.thebusybiscuit.slimefun4.libraries.dough.collections.Pair;
 import io.ncbpfluffybear.fluffymachines.listeners.KeyedCrafterListener;
+import io.ncbpfluffybear.fluffymachines.utils.BarrelHoverNameManager;
 import io.ncbpfluffybear.fluffymachines.utils.Events;
 import io.ncbpfluffybear.fluffymachines.utils.McMMOEvents;
 import io.ncbpfluffybear.fluffymachines.utils.Utils;
@@ -105,6 +106,7 @@ public class FluffyMachines extends JavaPlugin implements SlimefunAddon {
         // Registering Items
         FluffyItemSetup.setup(this);
         FluffyItemSetup.setupBarrels(this);
+        BarrelHoverNameManager.initialize();
 
         // mcMMO remains an optional runtime integration. The listener is registered
         // dynamically so building FluffyMachines does not require the mcMMO API JAR.
@@ -127,7 +129,7 @@ public class FluffyMachines extends JavaPlugin implements SlimefunAddon {
 
     @Override
     public void onDisable() {
-        // Logic for disabling the plugin...
+        BarrelHoverNameManager.shutdown();
     }
 
     @Override
