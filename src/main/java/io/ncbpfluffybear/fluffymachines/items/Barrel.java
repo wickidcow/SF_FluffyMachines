@@ -309,6 +309,10 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
         BlockMenu inv = StorageCacheUtils.getMenu(b.getLocation());
         int capacity = getCapacity(b);
 
+        // Repair older barrels that have buffered items but lost their registered
+        // display item, and clear registration only when the barrel is truly empty.
+        syncRegistration(inv, b, capacity);
+
         for (int slot : INPUT_SLOTS) {
             acceptInput(inv, b, slot, capacity);
         }
@@ -316,38 +320,45 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
         for (int ignored : OUTPUT_SLOTS) {
             pushOutput(inv, b, capacity);
         }
+
+        syncRegistration(inv, b, capacity);
     }
 
     void acceptInput(BlockMenu inv, Block b, int slot, int capacity) {
-        if (inv.getItemInSlot(slot) == null) {
+        ItemStack item = inv.getItemInSlot(slot);
+        if (item == null) {
             return;
         }
+
         int stored = getStored(b);
-        ItemStack item = inv.getItemInSlot(slot);
+        ItemStack displayItem = inv.getItemInSlot(DISPLAY_SLOT);
 
-        if (stored == 0) {
+        // The first accepted item registers the barrel immediately. Registration is
+        // independent of the internal stored counter because up to two stacks can sit
+        // in the output buffers while stored is zero.
+        if (!isRegisteredItem(displayItem)) {
             registerItem(b, inv, slot, item, capacity, stored);
-        } else if (stored > 0 && inv.getItemInSlot(DISPLAY_SLOT) != null
-                && matchMeta(Utils.unKeyItem(inv.getItemInSlot(DISPLAY_SLOT)), item)) {
+            return;
+        }
 
-            if (stored < capacity) {
-                // Can fit entire itemstack
-                if (stored + item.getAmount() <= capacity) {
-                    storeItem(b, inv, slot, item, capacity, stored);
+        if (!matchMeta(Utils.unKeyItem(displayItem), item)) {
+            return;
+        }
 
-                    // Split itemstack
-                } else {
-                    int amount = capacity - stored;
-                    inv.consumeItem(slot, amount);
-                    setStored(b, stored + amount);
-                    updateMenu(b, inv, false, capacity);
-                }
+        if (stored < capacity) {
+            // Can fit entire itemstack
+            if (stored + item.getAmount() <= capacity) {
+                storeItem(b, inv, slot, item, capacity, stored);
+
+                // Split itemstack
             } else {
-                if (isTrashEnabled(b)) {
-                    inv.replaceExistingItem(slot, null);
-                }
-
+                int amount = capacity - stored;
+                inv.consumeItem(slot, amount);
+                setStored(b, stored + amount);
+                updateMenu(b, inv, false, capacity);
             }
+        } else if (isTrashEnabled(b)) {
+            inv.replaceExistingItem(slot, null);
         }
     }
     void pushOutput(BlockMenu inv, Block b, int capacity) {
@@ -403,6 +414,50 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
         setStored(b, stored + amount);
         updateMenu(b, inv, false, capacity);
     }
+
+    private void syncRegistration(BlockMenu inv, Block b, int capacity) {
+        if (inv == null) {
+            return;
+        }
+
+        ItemStack displayItem = inv.getItemInSlot(DISPLAY_SLOT);
+        ItemStack bufferedItem = getFirstBufferedItem(inv);
+        int stored = getStored(b);
+
+        // Upgrade barrels created under the old behavior: if the center slot says
+        // "No item" but an output buffer contains something, restore registration
+        // from that buffered stack before accepting any new input.
+        if (!isRegisteredItem(displayItem) && bufferedItem != null) {
+            inv.replaceExistingItem(DISPLAY_SLOT, new CustomItemStack(Utils.keyItem(bufferedItem), 1));
+            updateMenu(b, inv, false, capacity);
+            return;
+        }
+
+        // A registered item remains locked while either internal storage or either
+        // output buffer still contains it. Only a truly empty barrel forgets its type.
+        if (isRegisteredItem(displayItem) && stored == 0 && bufferedItem == null) {
+            updateMenu(b, inv, false, capacity);
+        }
+    }
+
+    private ItemStack getFirstBufferedItem(BlockMenu inv) {
+        for (int slot : OUTPUT_SLOTS) {
+            ItemStack item = inv.getItemInSlot(slot);
+            if (item != null && !item.getType().isAir()) {
+                return item;
+            }
+        }
+        return null;
+    }
+
+    private boolean hasBufferedItems(BlockMenu inv) {
+        return getFirstBufferedItem(inv) != null;
+    }
+
+    private boolean isRegisteredItem(ItemStack item) {
+        return item != null && item.getType() != Material.BARRIER && !item.getType().isAir();
+    }
+
     /**
      * This method checks if two items have the same metadata
      *
@@ -452,7 +507,7 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
         if (showHologram.getValue() && isHologramEnabled(b)) {
             updateHologram(b, itemName, " &9x" + stored + " &7(" + storedPercent + "&7%)");
         }
-        if (stored == 0) {
+        if (stored == 0 && !hasBufferedItems(inv)) {
             inv.replaceExistingItem(DISPLAY_SLOT, new CustomItemStack(Material.BARRIER, "&cNo item"));
             if (showHologram.getValue() && isHologramEnabled(b)) {
                 updateHologram(b, null, "&cNo item");
@@ -462,7 +517,7 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
     /**
      * This method toggles if a hologram is present above the barrel.
      *
-     * @param b is the block the hologram is linked to
+     * @param b is the barrel block
      */
     private void toggleHolo(Block b, int capacity) {
         if (isHologramEnabled(b)) {
@@ -545,6 +600,7 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
                     if (menu.getItemInSlot(slot) != null) {
                         Utils.giveOrDropItem(p, new CustomItemStack(menu.getItemInSlot(slot), 1));
                         menu.consumeItem(slot);
+                        updateMenu(b, menu, false, capacity);
                         return;
                     }
                 }
