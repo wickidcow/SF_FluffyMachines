@@ -3,6 +3,7 @@ package io.ncbpfluffybear.fluffymachines.utils;
 import com.xzavier0722.mc.plugin.slimefun4.storage.util.StorageCacheUtils;
 import io.ncbpfluffybear.fluffymachines.FluffyMachines;
 import io.ncbpfluffybear.fluffymachines.items.Barrel;
+import me.mrCookieSlime.Slimefun.api.inventory.BlockMenu;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
@@ -40,6 +41,7 @@ import java.util.UUID;
 public final class BarrelDisplayManager {
 
     private static final Map<String, DisplayState> STATES = new HashMap<>();
+    private static final int[] OUTPUT_BUFFER_SLOTS = {24, 25};
     private static final float DISPLAY_SCALE = 0.50F;
     private static boolean initialized;
     private static NamespacedKey displayKey;
@@ -75,21 +77,19 @@ public final class BarrelDisplayManager {
             return;
         }
 
-        int stored;
-        ItemStack storedItem;
+        VisibleContents contents;
         try {
-            stored = barrel.getStored(block);
-            storedItem = barrel.getStoredItem(block);
+            contents = getVisibleContents(block, barrel);
         } catch (RuntimeException ex) {
             return;
         }
 
-        if (stored <= 0 || storedItem == null || storedItem.getType() == Material.BARRIER || storedItem.getType().isAir()) {
+        if (contents == null) {
             remove(block);
             return;
         }
 
-        ItemStack shownItem = storedItem.clone();
+        ItemStack shownItem = contents.item.clone();
         shownItem.setAmount(1);
 
         BlockFace face = getDisplayFace(block);
@@ -118,6 +118,53 @@ public final class BarrelDisplayManager {
             block.getX() >> 4,
             block.getZ() >> 4
         ));
+    }
+
+    /**
+     * Returns the item and amount a player should consider to be inside this barrel.
+     *
+     * <p>Fluffy Barrels intentionally pre-fill their two output slots so cargo can
+     * withdraw from them. Those buffered items have already been deducted from the
+     * internal "stored" counter, but they are still physically inside the barrel.
+     * Counting matching output-buffer items here keeps the native display accurate
+     * without changing the original cargo/storage behavior.</p>
+     */
+    static VisibleContents getVisibleContents(@Nonnull Block block, @Nonnull Barrel barrel) {
+        int internalStored = barrel.getStored(block);
+        ItemStack representative = null;
+        int visibleAmount = 0;
+
+        if (internalStored > 0) {
+            ItemStack storedItem = barrel.getStoredItem(block);
+            if (isDisplayable(storedItem)) {
+                representative = storedItem.clone();
+                representative.setAmount(1);
+                visibleAmount = internalStored;
+            }
+        }
+
+        BlockMenu menu = StorageCacheUtils.getMenu(block.getLocation());
+        if (menu != null) {
+            for (int slot : OUTPUT_BUFFER_SLOTS) {
+                ItemStack buffered = menu.getItemInSlot(slot);
+                if (!isDisplayable(buffered)) {
+                    continue;
+                }
+
+                if (representative == null) {
+                    representative = buffered.clone();
+                    representative.setAmount(1);
+                }
+
+                if (representative.isSimilar(buffered)) {
+                    visibleAmount += buffered.getAmount();
+                }
+            }
+        }
+
+        return representative == null || visibleAmount <= 0
+            ? null
+            : new VisibleContents(representative, visibleAmount);
     }
 
     /**
@@ -232,24 +279,16 @@ public final class BarrelDisplayManager {
             }
 
             try {
-                int stored = barrel.getStored(block);
-                if (stored <= 0) {
+                VisibleContents contents = getVisibleContents(block, barrel);
+                if (contents == null) {
                     player.sendActionBar(Component.text("Fluffy Barrel", NamedTextColor.GOLD)
                         .append(Component.text(" • ", NamedTextColor.DARK_GRAY))
                         .append(Component.text("Empty", NamedTextColor.RED)));
                     continue;
                 }
 
-                ItemStack item = barrel.getStoredItem(block);
-                if (item == null || item.getType() == Material.BARRIER || item.getType().isAir()) {
-                    player.sendActionBar(Component.text("Fluffy Barrel", NamedTextColor.GOLD)
-                        .append(Component.text(" • ", NamedTextColor.DARK_GRAY))
-                        .append(Component.text("Empty", NamedTextColor.RED)));
-                    continue;
-                }
-
-                String amount = String.format(Locale.US, "%,d", stored);
-                Component itemName = getActualItemName(item);
+                String amount = String.format(Locale.US, "%,d", contents.amount);
+                Component itemName = getActualItemName(contents.item);
                 player.sendActionBar(itemName
                     .append(Component.text(" • ", NamedTextColor.DARK_GRAY))
                     .append(Component.text(amount, NamedTextColor.YELLOW))
@@ -288,6 +327,10 @@ public final class BarrelDisplayManager {
         return coordinate >= 0.25D && coordinate <= 0.75D;
     }
 
+    private static boolean isDisplayable(ItemStack item) {
+        return item != null && item.getType() != Material.BARRIER && !item.getType().isAir();
+    }
+
     /**
      * Returns the name Minecraft actually associates with the stored item while
      * preserving its Adventure colors and styles. Custom names take precedence,
@@ -316,6 +359,16 @@ public final class BarrelDisplayManager {
             World world = Bukkit.getWorld(state.worldId);
             return world == null || !world.isChunkLoaded(state.chunkX, state.chunkZ);
         });
+    }
+
+    static final class VisibleContents {
+        final ItemStack item;
+        final int amount;
+
+        private VisibleContents(@Nonnull ItemStack item, int amount) {
+            this.item = item;
+            this.amount = amount;
+        }
     }
 
     private static final class DisplayState {
