@@ -2,10 +2,10 @@ name: Build FluffyMachines
 
 on:
   push:
-    branches: [main, master]
+    branches: ['**']
     tags: ['v*']
   pull_request:
-    branches: [main, master]
+    branches: ['**']
   workflow_dispatch:
 
 permissions:
@@ -42,6 +42,13 @@ jobs:
           cp "${jars[0]}" "dist/${OUTPUT_NAME}"
           test -s "dist/${OUTPUT_NAME}"
           sha256sum "dist/${OUTPUT_NAME}"
+
+      - name: Upload raw JAR artifact
+        uses: actions/upload-artifact@v7
+        with:
+          path: dist/${{ env.OUTPUT_NAME }}
+          archive: false
+          if-no-files-found: error
 
       - name: Publish raw JAR release asset
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
