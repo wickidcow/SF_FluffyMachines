@@ -12,8 +12,8 @@ permissions:
   contents: write
 
 env:
-  LEGACY_ARTIFACT_VERSION: "1.0.0"
-  OUTPUT_NAME: "SF_FluffyMachines1.0.0.jar"
+  LEGACY_ARTIFACT_VERSION: "1.0.1"
+  OUTPUT_NAME: "SF_FluffyMachines1.0.1.jar"
 
 jobs:
   build:
