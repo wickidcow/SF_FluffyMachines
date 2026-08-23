@@ -19,7 +19,6 @@ import me.mrCookieSlime.Slimefun.api.inventory.BlockMenu;
 import me.mrCookieSlime.Slimefun.api.inventory.BlockMenuPreset;
 import me.mrCookieSlime.Slimefun.api.inventory.DirtyChestMenu;
 import me.mrCookieSlime.Slimefun.api.item_transport.ItemTransportFlow;
-import org.bukkit.ChatColor;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 import org.bukkit.event.block.BlockBreakEvent;
@@ -42,13 +41,10 @@ public class BackpackUnloader extends SlimefunItem implements EnergyNetComponent
     private static final int[] OUTPUT_SLOTS = {28, 29, 30, 31, 32, 33, 34, 37, 38, 39, 40, 41, 42, 43};
 
     public BackpackUnloader(ItemGroup category, SlimefunItemStack item, RecipeType recipeType, ItemStack[] recipe) {
-        super(category, item, recipeType, recipe
-        );
-
+        super(category, item, recipeType, recipe);
         addItemHandler(onBreak());
 
         new BlockMenuPreset(getId(), "&eBackpack Unloader") {
-
             @Override
             public void init() {
                 BackpackLoader.buildBorder(this, PLAIN_BORDER, INPUT_BORDER, OUTPUT_BORDER);
@@ -57,8 +53,7 @@ public class BackpackUnloader extends SlimefunItem implements EnergyNetComponent
             @Override
             public boolean canOpen(@Nonnull Block b, @Nonnull Player p) {
                 return p.hasPermission("slimefun.inventory.bypass")
-                    || Slimefun.getProtectionManager().hasPermission(p, b.getLocation(),
-                    Interaction.INTERACT_BLOCK);
+                    || Slimefun.getProtectionManager().hasPermission(p, b.getLocation(), Interaction.INTERACT_BLOCK);
             }
 
             @Override
@@ -68,14 +63,9 @@ public class BackpackUnloader extends SlimefunItem implements EnergyNetComponent
 
             @Override
             public int[] getSlotsAccessedByItemTransport(DirtyChestMenu menu, ItemTransportFlow flow, ItemStack item) {
-                if (flow == ItemTransportFlow.WITHDRAW) {
-                    return getOutputSlots();
-                } else {
-                    return getInputSlots();
-                }
+                return flow == ItemTransportFlow.WITHDRAW ? getOutputSlots() : getInputSlots();
             }
         };
-
     }
 
     private BlockBreakHandler onBreak() {
@@ -84,7 +74,6 @@ public class BackpackUnloader extends SlimefunItem implements EnergyNetComponent
             public void onPlayerBreak(@Nonnull BlockBreakEvent e, @Nonnull ItemStack item, @Nonnull List<ItemStack> drops) {
                 Block b = e.getBlock();
                 BlockMenu inv = StorageCacheUtils.getMenu(b.getLocation());
-
                 if (inv != null) {
                     inv.dropItems(b.getLocation(), getInputSlots());
                     inv.dropItems(b.getLocation(), getOutputSlots());
@@ -107,12 +96,14 @@ public class BackpackUnloader extends SlimefunItem implements EnergyNetComponent
     }
 
     private void tick(@Nonnull Block b) {
-
         if (getCharge(b.getLocation()) < ENERGY_CONSUMPTION) {
             return;
         }
 
         final BlockMenu inv = StorageCacheUtils.getMenu(b.getLocation());
+        if (inv == null) {
+            return;
+        }
 
         for (int outputSlot : getOutputSlots()) {
             if (inv.getItemInSlot(outputSlot) == null) {
@@ -126,16 +117,9 @@ public class BackpackUnloader extends SlimefunItem implements EnergyNetComponent
         if (inputItem != null) {
             SlimefunItem sfItem = SlimefunItem.getByItem(inputItem);
             if (sfItem instanceof SlimefunBackpack) {
-
-                // No ID
-                List<String> lore = inputItem.hasItemMeta() ? inputItem.getItemMeta().getLore() : null;
-                if (lore != null) {
-                    for (String line : lore) {
-                        if (line.equals(ChatColor.GRAY + "Owner: ")) {
-                            rejectInput(inv);
-                            return;
-                        }
-                    }
+                if (!PlayerBackpack.hasBackpackIdentity(inputItem.getItemMeta())) {
+                    rejectInput(inv);
+                    return;
                 }
 
                 PlayerBackpack.getAsync(inputItem, backpack -> {
@@ -143,8 +127,6 @@ public class BackpackUnloader extends SlimefunItem implements EnergyNetComponent
                         return;
                     }
 
-                    // Gugu/Legacy backpack callbacks may be asynchronous. Keep all Bukkit
-                    // inventory and BlockMenu changes on the primary server thread.
                     Utils.runSync(() -> {
                         Inventory backpackInventory = backpack.getInventory();
                         for (int slot = 0; slot < backpackInventory.getSize(); slot++) {
@@ -154,23 +136,18 @@ public class BackpackUnloader extends SlimefunItem implements EnergyNetComponent
                                     return;
                                 }
 
-                                // Insert a clone first. The backpack is only cleared after the
-                                // output is known to fit, preventing items from being voided.
                                 inv.pushItem(transferItem.clone(), getOutputSlots());
                                 backpackInventory.setItem(slot, null);
-                                Slimefun.getDatabaseManager().getProfileDataController()
-                                    .saveBackpackInventory(backpack);
+                                Slimefun.getDatabaseManager().getProfileDataController().saveBackpackInventory(backpack);
                                 removeCharge(b.getLocation(), ENERGY_CONSUMPTION);
                                 return;
                             }
                         }
 
-                        // Backpack is empty, move it to the output.
                         rejectInput(inv);
                     });
                 }, false);
             } else {
-                // Not a backpack
                 rejectInput(inv);
             }
         }
@@ -201,4 +178,3 @@ public class BackpackUnloader extends SlimefunItem implements EnergyNetComponent
         return OUTPUT_SLOTS;
     }
 }
-
