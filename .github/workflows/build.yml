@@ -1,4 +1,4 @@
-name: Build FluffyMachines
+name: Build FluffyMachines Legacy
 
 on:
   push:
@@ -12,15 +12,22 @@ permissions:
   contents: write
 
 env:
-  LEGACY_ARTIFACT_VERSION: "1.0.0"
-  OUTPUT_NAME: "SF_FluffyMachines1.0.0.jar"
+  LEGACY_ARTIFACT_VERSION: "1.0.1"
+  OUTPUT_NAME: "SF_FluffyMachines1.0.1.jar"
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v5
+      - name: Checkout FluffyMachines
+        uses: actions/checkout@v6
+
+      - name: Checkout Slimefun Legacy
+        uses: actions/checkout@v6
+        with:
+          repository: wickidcow/Slimefun-Legacy
+          ref: master
+          path: .deps/Slimefun-Legacy
 
       - name: Set up Java 25
         uses: actions/setup-java@v5
@@ -29,8 +36,18 @@ jobs:
           java-version: '25'
           cache: maven
 
-      - name: Build and verify
-        run: mvn -B clean verify --file pom.xml
+      - name: Publish Slimefun Legacy API locally
+        working-directory: .deps/Slimefun-Legacy
+        run: |
+          chmod +x gradlew
+          ./gradlew publishToMavenLocal -PprojectVersion=ALBION-SNAPSHOT --no-daemon
+
+      - name: Build and verify against Slimefun Legacy
+        run: >-
+          mvn -B clean verify --file pom.xml
+          -Dslimefun.groupId=com.github.slimefun
+          -Dslimefun.artifactId=Slimefun
+          -Dslimefun.version=ALBION-SNAPSHOT
 
       - name: Stage versioned JAR
         shell: bash
@@ -41,6 +58,7 @@ jobs:
           test "${#jars[@]}" -eq 1
           cp "${jars[0]}" "dist/${OUTPUT_NAME}"
           test -s "dist/${OUTPUT_NAME}"
+          jar tf "dist/${OUTPUT_NAME}" | grep -Fxq 'plugin.yml'
           sha256sum "dist/${OUTPUT_NAME}"
 
       - name: Upload raw JAR artifact
@@ -62,5 +80,5 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$JAR" --clobber
           else
-            gh release create "$TAG" "$JAR" --target "$GITHUB_SHA" --generate-notes --title "SF_FluffyMachines $TAG"
+            gh release create "$TAG" "$JAR" --target "$GITHUB_SHA" --title "SF_FluffyMachines $TAG" --notes "Legacy compatibility update: backpack loader/unloader now recognize persistent backpack identities (while retaining legacy lore support), with Paper 26.2 / Java 25 validation directly against Slimefun Legacy."
           fi
