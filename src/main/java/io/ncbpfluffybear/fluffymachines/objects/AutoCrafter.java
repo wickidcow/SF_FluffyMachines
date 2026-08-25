@@ -16,6 +16,11 @@ import io.github.thebusybiscuit.slimefun4.implementation.Slimefun;
 import io.github.thebusybiscuit.slimefun4.libraries.dough.items.CustomItemStack;
 import io.github.thebusybiscuit.slimefun4.libraries.dough.protection.Interaction;
 import io.github.thebusybiscuit.slimefun4.utils.SlimefunUtils;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import javax.annotation.Nonnull;
 import me.mrCookieSlime.CSCoreLibPlugin.general.Inventory.ChestMenu;
 import me.mrCookieSlime.CSCoreLibPlugin.general.Inventory.ClickAction;
 import me.mrCookieSlime.Slimefun.Objects.handlers.BlockTicker;
@@ -31,16 +36,11 @@ import org.bukkit.event.block.BlockPlaceEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.inventory.ItemStack;
 
-import javax.annotation.Nonnull;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
-
 public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
 
     private static final String WIKI_PAGE = "machines/auto-crafters";
     private static final String SINGLE_CRAFT_READY = "single-craft-ready";
+    private static final long REFILL_CHECK_INTERVAL_NANOS = 250_000_000L;
 
     public static final int ENERGY_CONSUMPTION = 128;
     public static final int CAPACITY = ENERGY_CONSUMPTION * 3;
@@ -54,7 +54,15 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
     private final MultiBlockMachine mblock;
     private final ConcurrentHashMap<BlockMenu, CachedRecipe> recipeCache = new ConcurrentHashMap<>();
 
-    public AutoCrafter(ItemGroup category, SlimefunItemStack item, RecipeType recipeType, ItemStack[] recipe, String displayName, Material material, String machineName, RecipeType machineRecipes) {
+    public AutoCrafter(
+            ItemGroup category,
+            SlimefunItemStack item,
+            RecipeType recipeType,
+            ItemStack[] recipe,
+            String displayName,
+            Material material,
+            String machineName,
+            RecipeType machineRecipes) {
         super(category, item, recipeType, recipe);
 
         this.machineName = machineName;
@@ -82,10 +90,12 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
             @Override
             public void newInstance(@Nonnull BlockMenu menu, @Nonnull Block b) {
                 SlimefunBlockData blockData = StorageCacheUtils.getBlock(b.getLocation());
-                if (blockData.getData("enabled") == null || String.valueOf(false).equals(blockData.getData("enabled"))) {
-                    menu.replaceExistingItem(6, new CustomItemStack(Material.GUNPOWDER, "&7Enabled: &4\u2718", "",
-                        "&e> Click to enable")
-                    );
+                if (blockData.getData("enabled") == null
+                        || String.valueOf(false).equals(blockData.getData("enabled"))) {
+                    menu.replaceExistingItem(
+                            6,
+                            new CustomItemStack(
+                                    Material.GUNPOWDER, "&7Enabled: &4✘", "", "&e> Click to enable"));
                     menu.addMenuClickHandler(6, (p, slot, item, action) -> {
                         blockData.setData("enabled", String.valueOf(true));
                         // Explicitly enabling the machine re-arms a complete one-shot recipe.
@@ -94,9 +104,10 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
                         return false;
                     });
                 } else {
-                    menu.replaceExistingItem(6, new CustomItemStack(Material.REDSTONE, "&7Enabled: &2\u2714",
-                        "", "&e> Click to disable")
-                    );
+                    menu.replaceExistingItem(
+                            6,
+                            new CustomItemStack(
+                                    Material.REDSTONE, "&7Enabled: &2✔", "", "&e> Click to disable"));
                     menu.addMenuClickHandler(6, (p, slot, item, action) -> {
                         blockData.setData("enabled", String.valueOf(false));
                         newInstance(menu, b);
@@ -108,8 +119,8 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
             @Override
             public boolean canOpen(@Nonnull Block b, @Nonnull Player p) {
                 return p.hasPermission("slimefun.inventory.bypass")
-                    || Slimefun.getProtectionManager().hasPermission(p, b.getLocation(),
-                    Interaction.INTERACT_BLOCK);
+                        || Slimefun.getProtectionManager()
+                                .hasPermission(p, b.getLocation(), Interaction.INTERACT_BLOCK);
             }
 
             @Override
@@ -118,7 +129,8 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
             }
 
             @Override
-            public int[] getSlotsAccessedByItemTransport(DirtyChestMenu menu, ItemTransportFlow flow, ItemStack item) {
+            public int[] getSlotsAccessedByItemTransport(
+                    DirtyChestMenu menu, ItemTransportFlow flow, ItemStack item) {
                 return getCustomItemTransport(menu, flow, item);
             }
         };
@@ -153,13 +165,15 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
             @Override
             public void onPlayerPlace(@Nonnull BlockPlaceEvent e) {
                 StorageCacheUtils.setData(e.getBlock().getLocation(), "enabled", String.valueOf(false));
-                StorageCacheUtils.setData(e.getBlock().getLocation(), SINGLE_CRAFT_READY, String.valueOf(true));
+                StorageCacheUtils.setData(
+                        e.getBlock().getLocation(), SINGLE_CRAFT_READY, String.valueOf(true));
             }
 
             @Override
             public void onBlockPlacerPlace(@Nonnull BlockPlacerPlaceEvent e) {
                 StorageCacheUtils.setData(e.getBlock().getLocation(), "enabled", String.valueOf(false));
-                StorageCacheUtils.setData(e.getBlock().getLocation(), SINGLE_CRAFT_READY, String.valueOf(true));
+                StorageCacheUtils.setData(
+                        e.getBlock().getLocation(), SINGLE_CRAFT_READY, String.valueOf(true));
             }
         };
     }
@@ -167,7 +181,8 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
     private BlockBreakHandler onBreak() {
         return new BlockBreakHandler(false, false) {
             @Override
-            public void onPlayerBreak(@Nonnull BlockBreakEvent e, @Nonnull ItemStack i, @Nonnull List<ItemStack> list) {
+            public void onPlayerBreak(
+                    @Nonnull BlockBreakEvent e, @Nonnull ItemStack i, @Nonnull List<ItemStack> list) {
                 Block b = e.getBlock();
                 BlockMenu inv = StorageCacheUtils.getMenu(b.getLocation());
 
@@ -176,7 +191,6 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
                     inv.dropItems(b.getLocation(), getInputSlots());
                     inv.dropItems(b.getLocation(), getOutputSlots());
                 }
-
             }
         };
     }
@@ -197,21 +211,31 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
                 }
 
                 @Override
-                public boolean onClick(InventoryClickEvent e, Player p, int slot, ItemStack cursor,
-                                       ClickAction action) {
-                    if (cursor == null) return true;
+                public boolean onClick(
+                        InventoryClickEvent e,
+                        Player p,
+                        int slot,
+                        ItemStack cursor,
+                        ClickAction action) {
+                    if (cursor == null) {
+                        return true;
+                    }
                     return cursor.getType() == Material.AIR;
                 }
             });
         }
 
-        preset.addItem(2, new CustomItemStack(new ItemStack(material), "&eHow to use",
-                "", "&bPlace the recipe for the desired item inside",
-                "&bOne item in each occupied slot can craft once",
-                "&bFor automation, leave one template item and supply extras",
-                "&4Only " + machineName + "&4 recipes are supported"
-            ),
-            (p, slot, item, action) -> false);
+        preset.addItem(
+                2,
+                new CustomItemStack(
+                        new ItemStack(material),
+                        "&eHow to use",
+                        "",
+                        "&bPlace the recipe for the desired item inside",
+                        "&bOne item in each occupied slot can craft once",
+                        "&bFor automation, leave one template item and supply extras",
+                        "&4Only " + machineName + "&4 recipes are supported"),
+                (p, slot, item, action) -> false);
     }
 
     public int getEnergyConsumption() {
@@ -242,7 +266,7 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
 
             @Override
             public void tick(Block b, SlimefunItem sf, SlimefunBlockData data) {
-                AutoCrafter.this.tick(b);
+                AutoCrafter.this.tick(b, data);
             }
 
             @Override
@@ -252,12 +276,21 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
         });
     }
 
-    protected void tick(Block block) {
-        if (String.valueOf(false).equals(StorageCacheUtils.getData(block.getLocation(), "enabled"))) {
+    protected void tick(Block block, SlimefunBlockData data) {
+        if (data.isPendingRemove()) {
             return;
         }
 
-        BlockMenu menu = StorageCacheUtils.getMenu(block.getLocation());
+        if (!data.isDataLoaded()) {
+            StorageCacheUtils.requestLoad(data);
+            return;
+        }
+
+        if (String.valueOf(false).equals(data.getData("enabled"))) {
+            return;
+        }
+
+        BlockMenu menu = data.getBlockMenu();
         if (menu == null) {
             return;
         }
@@ -265,19 +298,33 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
         // Re-arm immediately after the grid is cleared, even when the machine currently has no power.
         if (isInputGridEmpty(menu)) {
             recipeCache.remove(menu);
-            StorageCacheUtils.setData(block.getLocation(), SINGLE_CRAFT_READY, String.valueOf(true));
+            data.setData(SINGLE_CRAFT_READY, String.valueOf(true));
             return;
         }
 
-        if (getCharge(block.getLocation()) < getEnergyConsumption()) {
+        if (getChargeLong(data.getLocation(), data) < getEnergyConsumption()) {
             return;
         }
 
-        craftIfValid(block, menu);
+        craftIfValid(menu, data);
     }
 
-    private void craftIfValid(Block block, BlockMenu menu) {
-        // Make sure at least 1 slot is free
+    private void craftIfValid(BlockMenu menu, SlimefunBlockData data) {
+        boolean singleCraftReady = Boolean.parseBoolean(data.getData(SINGLE_CRAFT_READY));
+        CachedRecipe cachedRecipe = recipeCache.get(menu);
+        long now = System.nanoTime();
+
+        // A retained template spends most of its life waiting for cargo to refill it. Polling the
+        // full semantic item matcher every Minecraft tick is needlessly expensive, so back off
+        // validation very slightly while idle. Buffered/actively crafting recipes are never throttled.
+        if (cachedRecipe != null
+                && cachedRecipe.waitingForRefill
+                && !singleCraftReady
+                && now < cachedRecipe.nextRefillCheckNanos) {
+            return;
+        }
+
+        // Make sure at least 1 slot is free.
         for (int outSlot : getOutputSlots()) {
             ItemStack outItem = menu.getItemInSlot(outSlot);
             if (outItem == null || outItem.getAmount() < outItem.getMaxStackSize()) {
@@ -287,19 +334,17 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
             }
         }
 
-        boolean singleCraftReady = Boolean.parseBoolean(
-            StorageCacheUtils.getData(block.getLocation(), SINGLE_CRAFT_READY)
-        );
-
-        CachedRecipe cachedRecipe = recipeCache.get(menu);
         if (cachedRecipe != null) {
             RecipeMatch cachedMatch = getRecipeMatch(menu, cachedRecipe.input);
             if (cachedMatch != RecipeMatch.NONE) {
                 if (cachedMatch == RecipeMatch.SINGLE && !singleCraftReady) {
+                    cachedRecipe.waitingForRefill = true;
+                    cachedRecipe.nextRefillCheckNanos = now + REFILL_CHECK_INTERVAL_NANOS;
                     return;
                 }
 
-                craftRecipe(block, menu, cachedRecipe.output);
+                cachedRecipe.waitingForRefill = false;
+                craftRecipe(menu, data, cachedRecipe.output);
                 return;
             }
 
@@ -320,10 +365,12 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
             // A retained one-shot template is still a valid recipe. Cache it and wait for refill
             // instead of scanning the complete recipe list on every ticker pass.
             if (match == RecipeMatch.SINGLE && !singleCraftReady) {
+                resolvedRecipe.waitingForRefill = true;
+                resolvedRecipe.nextRefillCheckNanos = now + REFILL_CHECK_INTERVAL_NANOS;
                 return;
             }
 
-            craftRecipe(block, menu, output);
+            craftRecipe(menu, data, output);
             return;
         }
 
@@ -332,15 +379,15 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
         // execution to prevent abuse and auto clickers
     }
 
-    private void craftRecipe(Block block, BlockMenu menu, ItemStack outputTemplate) {
+    private void craftRecipe(BlockMenu menu, SlimefunBlockData data, ItemStack outputTemplate) {
         ItemStack output = outputTemplate.clone();
         if (!menu.fits(output, getOutputSlots())) {
             return;
         }
 
         craft(output, menu);
-        StorageCacheUtils.setData(block.getLocation(), SINGLE_CRAFT_READY, String.valueOf(false));
-        removeCharge(block.getLocation(), getEnergyConsumption());
+        data.setData(SINGLE_CRAFT_READY, String.valueOf(false));
+        removeCharge(data.getLocation(), getEnergyConsumption(), data);
     }
 
     private boolean isInputGridEmpty(BlockMenu menu) {
@@ -368,7 +415,9 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
                 return RecipeMatch.NONE;
             }
 
-            if (item != null && item.getType() != Material.AIR && item.getType().getMaxStackSize() != 1) {
+            if (item != null
+                    && item.getType() != Material.AIR
+                    && item.getType().getMaxStackSize() != 1) {
                 if (item.getAmount() == 1) {
                     hasSingleStackableIngredient = true;
                 } else {
@@ -400,6 +449,8 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
     private static final class CachedRecipe {
         private final ItemStack[] input;
         private final ItemStack output;
+        private volatile boolean waitingForRefill;
+        private volatile long nextRefillCheckNanos;
 
         private CachedRecipe(ItemStack[] input, ItemStack output) {
             this.input = input;
@@ -413,20 +464,27 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
         BUFFERED
     }
 
-    static void borders(BlockMenuPreset preset, int[] border, int[] inputBorder, int[] outputBorder) {
+    static void borders(
+            BlockMenuPreset preset, int[] border, int[] inputBorder, int[] outputBorder) {
         for (int i : border) {
-            preset.addItem(i, new CustomItemStack(new ItemStack(Material.GRAY_STAINED_GLASS_PANE), " "),
-                (p, slot, item, action) -> false);
+            preset.addItem(
+                    i,
+                    new CustomItemStack(new ItemStack(Material.GRAY_STAINED_GLASS_PANE), " "),
+                    (p, slot, item, action) -> false);
         }
 
         for (int i : inputBorder) {
-            preset.addItem(i, new CustomItemStack(new ItemStack(Material.CYAN_STAINED_GLASS_PANE), " "),
-                (p, slot, item, action) -> false);
+            preset.addItem(
+                    i,
+                    new CustomItemStack(new ItemStack(Material.CYAN_STAINED_GLASS_PANE), " "),
+                    (p, slot, item, action) -> false);
         }
 
         for (int i : outputBorder) {
-            preset.addItem(i, new CustomItemStack(new ItemStack(Material.ORANGE_STAINED_GLASS_PANE), " "),
-                (p, slot, item, action) -> false);
+            preset.addItem(
+                    i,
+                    new CustomItemStack(new ItemStack(Material.ORANGE_STAINED_GLASS_PANE), " "),
+                    (p, slot, item, action) -> false);
         }
     }
 }
