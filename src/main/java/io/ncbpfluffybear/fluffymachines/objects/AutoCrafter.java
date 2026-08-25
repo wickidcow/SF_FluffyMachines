@@ -35,6 +35,8 @@ import javax.annotation.Nonnull;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
 
@@ -51,6 +53,7 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
     private final String machineName;
     private final Material material;
     private final MultiBlockMachine mblock;
+    private final Map<String, CachedRecipe> recipeCache = new ConcurrentHashMap<>();
 
     public AutoCrafter(ItemGroup category, SlimefunItemStack item, RecipeType recipeType, ItemStack[] recipe, String displayName, Material material, String machineName, RecipeType machineRecipes) {
         super(category, item, recipeType, recipe);
@@ -86,7 +89,6 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
                     );
                     menu.addMenuClickHandler(6, (p, slot, item, action) -> {
                         blockData.setData("enabled", String.valueOf(true));
-                        // Explicitly enabling the machine re-arms a complete one-shot recipe.
                         blockData.setData(SINGLE_CRAFT_READY, String.valueOf(true));
                         newInstance(menu, b);
                         return false;
@@ -150,12 +152,14 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
 
             @Override
             public void onPlayerPlace(@Nonnull BlockPlaceEvent e) {
+                recipeCache.remove(getBlockKey(e.getBlock()));
                 StorageCacheUtils.setData(e.getBlock().getLocation(), "enabled", String.valueOf(false));
                 StorageCacheUtils.setData(e.getBlock().getLocation(), SINGLE_CRAFT_READY, String.valueOf(true));
             }
 
             @Override
             public void onBlockPlacerPlace(@Nonnull BlockPlacerPlaceEvent e) {
+                recipeCache.remove(getBlockKey(e.getBlock()));
                 StorageCacheUtils.setData(e.getBlock().getLocation(), "enabled", String.valueOf(false));
                 StorageCacheUtils.setData(e.getBlock().getLocation(), SINGLE_CRAFT_READY, String.valueOf(true));
             }
@@ -167,6 +171,7 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
             @Override
             public void onPlayerBreak(@Nonnull BlockBreakEvent e, @Nonnull ItemStack i, @Nonnull List<ItemStack> list) {
                 Block b = e.getBlock();
+                recipeCache.remove(getBlockKey(b));
                 BlockMenu inv = StorageCacheUtils.getMenu(b.getLocation());
 
                 if (inv != null) {
@@ -259,7 +264,6 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
             return;
         }
 
-        // Re-arm immediately after the grid is cleared, even when the machine currently has no power.
         if (isInputGridEmpty(menu)) {
             StorageCacheUtils.setData(block.getLocation(), SINGLE_CRAFT_READY, String.valueOf(true));
             return;
@@ -273,7 +277,6 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
     }
 
     private void craftIfValid(Block block, BlockMenu menu) {
-        // Make sure at least 1 slot is free
         for (int outSlot : getOutputSlots()) {
             ItemStack outItem = menu.getItemInSlot(outSlot);
             if (outItem == null || outItem.getAmount() < outItem.getMaxStackSize()) {
@@ -287,27 +290,81 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
             StorageCacheUtils.getData(block.getLocation(), SINGLE_CRAFT_READY)
         );
 
-        // Find matching recipe
-        for (ItemStack[] input : RecipeType.getRecipeInputList(mblock)) {
-            RecipeMatch match = getRecipeMatch(menu, input);
-            if (match == RecipeMatch.NONE || (match == RecipeMatch.SINGLE && !singleCraftReady)) {
-                continue;
-            }
-
-            ItemStack output = RecipeType.getRecipeOutputList(mblock, input).clone();
-            if (!menu.fits(output, getOutputSlots())) {
-                return;
-            }
-
-            craft(output, menu);
-            StorageCacheUtils.setData(block.getLocation(), SINGLE_CRAFT_READY, String.valueOf(false));
-            removeCharge(block.getLocation(), getEnergyConsumption());
+        CachedRecipe cachedRecipe = getCachedRecipe(block, menu);
+        if (!cachedRecipe.hasRecipe()) {
             return;
         }
 
-        // we're only executing the last possible shaped recipe
-        // we don't want to allow this to be pressed instead of the default timer-based
-        // execution to prevent abuse and auto clickers
+        RecipeMatch match = getRecipeMatch(menu, cachedRecipe.recipeInput);
+        if (match == RecipeMatch.NONE || (match == RecipeMatch.SINGLE && !singleCraftReady)) {
+            return;
+        }
+
+        ItemStack output = cachedRecipe.output.clone();
+        if (!menu.fits(output, getOutputSlots())) {
+            return;
+        }
+
+        craft(output, menu);
+        StorageCacheUtils.setData(block.getLocation(), SINGLE_CRAFT_READY, String.valueOf(false));
+        removeCharge(block.getLocation(), getEnergyConsumption());
+    }
+
+    private CachedRecipe getCachedRecipe(Block block, BlockMenu menu) {
+        String blockKey = getBlockKey(block);
+        CachedRecipe cached = recipeCache.get(blockKey);
+
+        if (cached != null && cached.matches(menu)) {
+            return cached;
+        }
+
+        ItemStack[] template = snapshotTemplate(menu);
+        for (ItemStack[] input : RecipeType.getRecipeInputList(mblock)) {
+            if (!matchesRecipeTemplate(menu, input)) {
+                continue;
+            }
+
+            ItemStack output = RecipeType.getRecipeOutputList(mblock, input);
+            CachedRecipe resolved = new CachedRecipe(template, input, output == null ? null : output.clone());
+            recipeCache.put(blockKey, resolved);
+            return resolved;
+        }
+
+        CachedRecipe noMatch = new CachedRecipe(template, null, null);
+        recipeCache.put(blockKey, noMatch);
+        return noMatch;
+    }
+
+    private boolean matchesRecipeTemplate(BlockMenu inv, ItemStack[] recipe) {
+        if (recipe == null || recipe.length != getInputSlots().length) {
+            return false;
+        }
+
+        for (int j = 0; j < getInputSlots().length; j++) {
+            ItemStack item = inv.getItemInSlot(getInputSlots()[j]);
+            if (!SlimefunUtils.isItemSimilar(item, recipe[j], true)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private ItemStack[] snapshotTemplate(BlockMenu menu) {
+        ItemStack[] template = new ItemStack[getInputSlots().length];
+        for (int j = 0; j < getInputSlots().length; j++) {
+            ItemStack item = menu.getItemInSlot(getInputSlots()[j]);
+            if (item != null && item.getType() != Material.AIR) {
+                ItemStack clone = item.clone();
+                clone.setAmount(1);
+                template[j] = clone;
+            }
+        }
+        return template;
+    }
+
+    private String getBlockKey(Block block) {
+        return block.getWorld().getUID() + ":" + block.getX() + ":" + block.getY() + ":" + block.getZ();
     }
 
     private boolean isInputGridEmpty(BlockMenu menu) {
@@ -344,7 +401,6 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
             }
         }
 
-        // A partially refilled retained template must wait until every stackable slot is buffered.
         if (hasSingleStackableIngredient && hasBufferedStackableIngredient) {
             return RecipeMatch.NONE;
         }
@@ -362,6 +418,32 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
         }
 
         inv.pushItem(output, outputSlots);
+    }
+
+    private final class CachedRecipe {
+        private final ItemStack[] template;
+        private final ItemStack[] recipeInput;
+        private final ItemStack output;
+
+        private CachedRecipe(ItemStack[] template, ItemStack[] recipeInput, ItemStack output) {
+            this.template = template;
+            this.recipeInput = recipeInput;
+            this.output = output;
+        }
+
+        private boolean hasRecipe() {
+            return recipeInput != null && output != null;
+        }
+
+        private boolean matches(BlockMenu menu) {
+            for (int j = 0; j < getInputSlots().length; j++) {
+                ItemStack current = menu.getItemInSlot(getInputSlots()[j]);
+                if (!SlimefunUtils.isItemSimilar(current, template[j], true)) {
+                    return false;
+                }
+            }
+            return true;
+        }
     }
 
     private enum RecipeMatch {
@@ -387,4 +469,3 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
         }
     }
 }
-
