@@ -25,10 +25,10 @@ import org.bukkit.util.Transformation;
 import org.bukkit.util.Vector;
 
 import javax.annotation.Nonnull;
-import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Manages the non-interactive item icon shown on the face of a Fluffy Barrel.
@@ -39,7 +39,7 @@ import java.util.UUID;
  */
 public final class BarrelDisplayManager {
 
-    private static final Map<String, DisplayState> STATES = new HashMap<>();
+    private static final Map<String, DisplayState> STATES = new ConcurrentHashMap<>();
     private static final float DISPLAY_SCALE = 0.50F;
     private static boolean initialized;
     private static NamespacedKey displayKey;
@@ -66,8 +66,8 @@ public final class BarrelDisplayManager {
 
     /**
      * Ensures that the barrel has exactly one ItemDisplay showing its current item.
-     * This method is safe to call from the barrel ticker because unchanged displays
-     * return immediately without searching nearby entities.
+     * Unchanged displays return from the in-memory state cache without performing
+     * an entity lookup or nearby-entity scan on every barrel tick.
      */
     public static void update(@Nonnull Block block, @Nonnull Barrel barrel) {
         initialize();
@@ -75,17 +75,28 @@ public final class BarrelDisplayManager {
             return;
         }
 
+        String barrelKey = getBarrelKey(block);
         int stored;
-        ItemStack storedItem;
         try {
             stored = barrel.getStored(block);
+        } catch (RuntimeException ex) {
+            return;
+        }
+
+        if (stored <= 0) {
+            removeTracked(barrelKey);
+            return;
+        }
+
+        ItemStack storedItem;
+        try {
             storedItem = barrel.getStoredItem(block);
         } catch (RuntimeException ex) {
             return;
         }
 
-        if (stored <= 0 || storedItem == null || storedItem.getType() == Material.BARRIER || storedItem.getType().isAir()) {
-            remove(block);
+        if (storedItem == null || storedItem.getType() == Material.BARRIER || storedItem.getType().isAir()) {
+            removeTracked(barrelKey);
             return;
         }
 
@@ -94,14 +105,10 @@ public final class BarrelDisplayManager {
 
         BlockFace face = getDisplayFace(block);
         int fingerprint = 31 * shownItem.hashCode() + face.ordinal();
-        String barrelKey = getBarrelKey(block);
         DisplayState state = STATES.get(barrelKey);
 
         if (state != null && state.fingerprint == fingerprint) {
-            Entity existing = Bukkit.getServer().getEntity(state.entityId);
-            if (existing instanceof ItemDisplay && existing.isValid()) {
-                return;
-            }
+            return;
         }
 
         ItemDisplay display = findExistingDisplay(block, barrelKey);
@@ -130,19 +137,25 @@ public final class BarrelDisplayManager {
         }
 
         String barrelKey = getBarrelKey(block);
-        DisplayState state = STATES.remove(barrelKey);
-        if (state != null) {
-            Entity entity = Bukkit.getServer().getEntity(state.entityId);
-            if (entity instanceof ItemDisplay) {
-                entity.remove();
-            }
-        }
+        removeTracked(barrelKey);
 
         Location center = block.getLocation().add(0.5, 0.5, 0.5);
         for (Entity entity : block.getWorld().getNearbyEntities(center, 1.25, 1.25, 1.25)) {
             if (entity instanceof ItemDisplay display && barrelKey.equals(getDisplayOwner(display))) {
                 display.remove();
             }
+        }
+    }
+
+    private static void removeTracked(@Nonnull String barrelKey) {
+        DisplayState state = STATES.remove(barrelKey);
+        if (state == null) {
+            return;
+        }
+
+        Entity entity = Bukkit.getServer().getEntity(state.entityId);
+        if (entity instanceof ItemDisplay) {
+            entity.remove();
         }
     }
 
@@ -187,7 +200,6 @@ public final class BarrelDisplayManager {
             if (result == null) {
                 result = display;
             } else {
-                // Clean up duplicate displays left by an interrupted reload/update.
                 display.remove();
             }
         }
@@ -204,8 +216,6 @@ public final class BarrelDisplayManager {
             return directional.getFacing();
         }
 
-        // Some higher-tier Fluffy Barrels use non-directional block materials.
-        // SOUTH gives those blocks one predictable display face.
         return BlockFace.SOUTH;
     }
 
@@ -314,7 +324,12 @@ public final class BarrelDisplayManager {
         STATES.entrySet().removeIf(entry -> {
             DisplayState state = entry.getValue();
             World world = Bukkit.getWorld(state.worldId);
-            return world == null || !world.isChunkLoaded(state.chunkX, state.chunkZ);
+            if (world == null || !world.isChunkLoaded(state.chunkX, state.chunkZ)) {
+                return true;
+            }
+
+            Entity entity = Bukkit.getServer().getEntity(state.entityId);
+            return !(entity instanceof ItemDisplay) || !entity.isValid();
         });
     }
 
