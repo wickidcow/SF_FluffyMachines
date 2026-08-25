@@ -342,7 +342,7 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
 
         for (int j = 0; j < getInputSlots().length; j++) {
             ItemStack item = inv.getItemInSlot(getInputSlots()[j]);
-            if (!SlimefunUtils.isItemSimilar(item, recipe[j], true)) {
+            if (!SlimefunUtils.isItemSimilar(item, recipe[j], true, false)) {
                 return false;
             }
         }
@@ -438,7 +438,7 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
         private boolean matches(BlockMenu menu) {
             for (int j = 0; j < getInputSlots().length; j++) {
                 ItemStack current = menu.getItemInSlot(getInputSlots()[j]);
-                if (!SlimefunUtils.isItemSimilar(current, template[j], true)) {
+                if (!SlimefunUtils.isItemSimilar(current, template[j], true, false)) {
                     return false;
                 }
             }
