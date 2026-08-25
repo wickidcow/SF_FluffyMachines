@@ -40,7 +40,6 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
 
     private static final String WIKI_PAGE = "machines/auto-crafters";
     private static final String SINGLE_CRAFT_READY = "single-craft-ready";
-    private static final long REFILL_CHECK_INTERVAL_NANOS = 250_000_000L;
 
     public static final int ENERGY_CONSUMPTION = 128;
     public static final int CAPACITY = ENERGY_CONSUMPTION * 3;
@@ -312,15 +311,14 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
     private void craftIfValid(BlockMenu menu, SlimefunBlockData data) {
         boolean singleCraftReady = Boolean.parseBoolean(data.getData(SINGLE_CRAFT_READY));
         CachedRecipe cachedRecipe = recipeCache.get(menu);
-        long now = System.nanoTime();
 
-        // A retained template spends most of its life waiting for cargo to refill it. Polling the
-        // full semantic item matcher every Minecraft tick is needlessly expensive, so back off
-        // validation very slightly while idle. Buffered/actively crafting recipes are never throttled.
+        // Once a retained template has been semantically validated, cargo can only make it craftable
+        // again by buffering every stackable ingredient above the retained template item. Watching
+        // those amounts is enough while idle and avoids repeating expensive Slimefun item matching.
         if (cachedRecipe != null
                 && cachedRecipe.waitingForRefill
                 && !singleCraftReady
-                && now < cachedRecipe.nextRefillCheckNanos) {
+                && !isRetainedTemplateBuffered(menu, cachedRecipe.input)) {
             return;
         }
 
@@ -339,7 +337,6 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
             if (cachedMatch != RecipeMatch.NONE) {
                 if (cachedMatch == RecipeMatch.SINGLE && !singleCraftReady) {
                     cachedRecipe.waitingForRefill = true;
-                    cachedRecipe.nextRefillCheckNanos = now + REFILL_CHECK_INTERVAL_NANOS;
                     return;
                 }
 
@@ -366,7 +363,6 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
             // instead of scanning the complete recipe list on every ticker pass.
             if (match == RecipeMatch.SINGLE && !singleCraftReady) {
                 resolvedRecipe.waitingForRefill = true;
-                resolvedRecipe.nextRefillCheckNanos = now + REFILL_CHECK_INTERVAL_NANOS;
                 return;
             }
 
@@ -399,6 +395,30 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
         }
 
         return true;
+    }
+
+    private boolean isRetainedTemplateBuffered(BlockMenu menu, ItemStack[] recipe) {
+        if (recipe == null || recipe.length != getInputSlots().length) {
+            return true;
+        }
+
+        boolean hasStackableIngredient = false;
+        for (int j = 0; j < getInputSlots().length; j++) {
+            ItemStack ingredient = recipe[j];
+            if (ingredient == null
+                    || ingredient.getType() == Material.AIR
+                    || ingredient.getType().getMaxStackSize() == 1) {
+                continue;
+            }
+
+            hasStackableIngredient = true;
+            ItemStack item = menu.getItemInSlot(getInputSlots()[j]);
+            if (item == null || item.getType() == Material.AIR || item.getAmount() <= 1) {
+                return false;
+            }
+        }
+
+        return hasStackableIngredient;
     }
 
     private RecipeMatch getRecipeMatch(BlockMenu inv, ItemStack[] recipe) {
@@ -450,7 +470,6 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
         private final ItemStack[] input;
         private final ItemStack output;
         private volatile boolean waitingForRefill;
-        private volatile long nextRefillCheckNanos;
 
         private CachedRecipe(ItemStack[] input, ItemStack output) {
             this.input = input;
