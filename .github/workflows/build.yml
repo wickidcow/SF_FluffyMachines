@@ -12,8 +12,8 @@ permissions:
   contents: write
 
 env:
-  LEGACY_ARTIFACT_VERSION: "1.0.1"
-  OUTPUT_NAME: "SF_FluffyMachines1.0.1.jar"
+  LEGACY_ARTIFACT_VERSION: "1.0.2"
+  OUTPUT_NAME: "SF_FluffyMachines1.0.2.jar"
 
 jobs:
   build:
@@ -80,5 +80,5 @@ jobs:
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$JAR" --clobber
           else
-            gh release create "$TAG" "$JAR" --target "$GITHUB_SHA" --title "SF_FluffyMachines $TAG" --notes "Legacy compatibility update: backpack loader/unloader now recognize persistent backpack identities (while retaining legacy lore support), with Paper 26.2 / Java 25 validation directly against Slimefun Legacy."
+            gh release create "$TAG" "$JAR" --target "$GITHUB_SHA" --title "SF_FluffyMachines $TAG" --notes "Performance update for Slimefun Legacy: the Auto Enhanced Crafting Table now reuses its last matching recipe instead of rescanning the full recipe list every successful machine tick. Existing crafting behavior, retained templates, and energy use are preserved. Validated against current Slimefun Legacy on Paper 26.2 / Java 25."
           fi
