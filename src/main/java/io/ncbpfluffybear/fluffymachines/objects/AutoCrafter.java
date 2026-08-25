@@ -35,6 +35,7 @@ import javax.annotation.Nonnull;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
 
@@ -51,6 +52,7 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
     private final String machineName;
     private final Material material;
     private final MultiBlockMachine mblock;
+    private final ConcurrentHashMap<BlockMenu, CachedRecipe> recipeCache = new ConcurrentHashMap<>();
 
     public AutoCrafter(ItemGroup category, SlimefunItemStack item, RecipeType recipeType, ItemStack[] recipe, String displayName, Material material, String machineName, RecipeType machineRecipes) {
         super(category, item, recipeType, recipe);
@@ -170,6 +172,7 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
                 BlockMenu inv = StorageCacheUtils.getMenu(b.getLocation());
 
                 if (inv != null) {
+                    recipeCache.remove(inv);
                     inv.dropItems(b.getLocation(), getInputSlots());
                     inv.dropItems(b.getLocation(), getOutputSlots());
                 }
@@ -261,6 +264,7 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
 
         // Re-arm immediately after the grid is cleared, even when the machine currently has no power.
         if (isInputGridEmpty(menu)) {
+            recipeCache.remove(menu);
             StorageCacheUtils.setData(block.getLocation(), SINGLE_CRAFT_READY, String.valueOf(true));
             return;
         }
@@ -287,27 +291,56 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
             StorageCacheUtils.getData(block.getLocation(), SINGLE_CRAFT_READY)
         );
 
-        // Find matching recipe
+        CachedRecipe cachedRecipe = recipeCache.get(menu);
+        if (cachedRecipe != null) {
+            RecipeMatch cachedMatch = getRecipeMatch(menu, cachedRecipe.input);
+            if (cachedMatch != RecipeMatch.NONE) {
+                if (cachedMatch == RecipeMatch.SINGLE && !singleCraftReady) {
+                    return;
+                }
+
+                craftRecipe(block, menu, cachedRecipe.output);
+                return;
+            }
+
+            recipeCache.remove(menu, cachedRecipe);
+        }
+
+        // Resolve the recipe only when the grid no longer matches the cached recipe.
         for (ItemStack[] input : RecipeType.getRecipeInputList(mblock)) {
             RecipeMatch match = getRecipeMatch(menu, input);
-            if (match == RecipeMatch.NONE || (match == RecipeMatch.SINGLE && !singleCraftReady)) {
+            if (match == RecipeMatch.NONE) {
                 continue;
             }
 
             ItemStack output = RecipeType.getRecipeOutputList(mblock, input).clone();
-            if (!menu.fits(output, getOutputSlots())) {
+            CachedRecipe resolvedRecipe = new CachedRecipe(input.clone(), output.clone());
+            recipeCache.put(menu, resolvedRecipe);
+
+            // A retained one-shot template is still a valid recipe. Cache it and wait for refill
+            // instead of scanning the complete recipe list on every ticker pass.
+            if (match == RecipeMatch.SINGLE && !singleCraftReady) {
                 return;
             }
 
-            craft(output, menu);
-            StorageCacheUtils.setData(block.getLocation(), SINGLE_CRAFT_READY, String.valueOf(false));
-            removeCharge(block.getLocation(), getEnergyConsumption());
+            craftRecipe(block, menu, output);
             return;
         }
 
         // we're only executing the last possible shaped recipe
         // we don't want to allow this to be pressed instead of the default timer-based
         // execution to prevent abuse and auto clickers
+    }
+
+    private void craftRecipe(Block block, BlockMenu menu, ItemStack outputTemplate) {
+        ItemStack output = outputTemplate.clone();
+        if (!menu.fits(output, getOutputSlots())) {
+            return;
+        }
+
+        craft(output, menu);
+        StorageCacheUtils.setData(block.getLocation(), SINGLE_CRAFT_READY, String.valueOf(false));
+        removeCharge(block.getLocation(), getEnergyConsumption());
     }
 
     private boolean isInputGridEmpty(BlockMenu menu) {
@@ -364,6 +397,16 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
         inv.pushItem(output, outputSlots);
     }
 
+    private static final class CachedRecipe {
+        private final ItemStack[] input;
+        private final ItemStack output;
+
+        private CachedRecipe(ItemStack[] input, ItemStack output) {
+            this.input = input;
+            this.output = output;
+        }
+    }
+
     private enum RecipeMatch {
         NONE,
         SINGLE,
@@ -387,4 +430,3 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
         }
     }
 }
-
