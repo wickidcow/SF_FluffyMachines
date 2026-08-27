@@ -23,6 +23,7 @@ import me.mrCookieSlime.Slimefun.api.inventory.BlockMenu;
 import me.mrCookieSlime.Slimefun.api.inventory.BlockMenuPreset;
 import me.mrCookieSlime.Slimefun.api.inventory.DirtyChestMenu;
 import me.mrCookieSlime.Slimefun.api.item_transport.ItemTransportFlow;
+import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
@@ -34,6 +35,7 @@ import org.bukkit.inventory.ItemStack;
 import javax.annotation.Nonnull;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -54,6 +56,9 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
     private final Material material;
     private final MultiBlockMachine mblock;
     private final Map<String, CachedRecipe> recipeCache = new ConcurrentHashMap<>();
+    private final Object recipeIndexLock = new Object();
+    private volatile Map<Integer, List<IndexedRecipe>> recipeShapeIndex = Map.of();
+    private volatile int indexedRecipeStorageSize = -1;
 
     public AutoCrafter(ItemGroup category, SlimefunItemStack item, RecipeType recipeType, ItemStack[] recipe, String displayName, Material material, String machineName, RecipeType machineRecipes) {
         super(category, item, recipeType, recipe);
@@ -152,16 +157,18 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
 
             @Override
             public void onPlayerPlace(@Nonnull BlockPlaceEvent e) {
-                recipeCache.remove(getBlockKey(e.getBlock()));
-                StorageCacheUtils.setData(e.getBlock().getLocation(), "enabled", String.valueOf(false));
-                StorageCacheUtils.setData(e.getBlock().getLocation(), SINGLE_CRAFT_READY, String.valueOf(true));
+                Location location = e.getBlock().getLocation();
+                StorageCacheUtils.setData(location, "enabled", String.valueOf(false));
+                StorageCacheUtils.setData(location, SINGLE_CRAFT_READY, String.valueOf(true));
+                clearRecipeCache(location);
             }
 
             @Override
             public void onBlockPlacerPlace(@Nonnull BlockPlacerPlaceEvent e) {
-                recipeCache.remove(getBlockKey(e.getBlock()));
-                StorageCacheUtils.setData(e.getBlock().getLocation(), "enabled", String.valueOf(false));
-                StorageCacheUtils.setData(e.getBlock().getLocation(), SINGLE_CRAFT_READY, String.valueOf(true));
+                Location location = e.getBlock().getLocation();
+                StorageCacheUtils.setData(location, "enabled", String.valueOf(false));
+                StorageCacheUtils.setData(location, SINGLE_CRAFT_READY, String.valueOf(true));
+                clearRecipeCache(location);
             }
         };
     }
@@ -171,16 +178,24 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
             @Override
             public void onPlayerBreak(@Nonnull BlockBreakEvent e, @Nonnull ItemStack i, @Nonnull List<ItemStack> list) {
                 Block b = e.getBlock();
-                recipeCache.remove(getBlockKey(b));
-                BlockMenu inv = StorageCacheUtils.getMenu(b.getLocation());
+                Location location = b.getLocation();
+                clearRecipeCache(location);
+                BlockMenu inv = StorageCacheUtils.getMenu(location);
 
                 if (inv != null) {
-                    inv.dropItems(b.getLocation(), getInputSlots());
-                    inv.dropItems(b.getLocation(), getOutputSlots());
+                    inv.dropItems(location, getInputSlots());
+                    inv.dropItems(location, getOutputSlots());
                 }
 
             }
         };
+    }
+
+    private void clearRecipeCache(Location location) {
+        SlimefunBlockData blockData = StorageCacheUtils.getBlock(location);
+        if (blockData != null) {
+            recipeCache.remove(blockData.getKey());
+        }
     }
 
     protected Comparator<Integer> compareSlots(DirtyChestMenu menu) {
@@ -244,7 +259,7 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
 
             @Override
             public void tick(Block b, SlimefunItem sf, SlimefunBlockData data) {
-                AutoCrafter.this.tick(b);
+                AutoCrafter.this.tick(b, data);
             }
 
             @Override
@@ -255,28 +270,38 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
     }
 
     protected void tick(Block block) {
-        if (String.valueOf(false).equals(StorageCacheUtils.getData(block.getLocation(), "enabled"))) {
+        SlimefunBlockData blockData = StorageCacheUtils.getBlock(block.getLocation());
+        if (blockData != null) {
+            tick(block, blockData);
+        }
+    }
+
+    private void tick(Block block, SlimefunBlockData blockData) {
+        if (String.valueOf(false).equals(blockData.getData("enabled"))) {
             return;
         }
 
-        BlockMenu menu = StorageCacheUtils.getMenu(block.getLocation());
+        Location location = blockData.getLocation();
+        BlockMenu menu = blockData.getBlockMenu();
         if (menu == null) {
             return;
         }
 
         if (isInputGridEmpty(menu)) {
-            StorageCacheUtils.setData(block.getLocation(), SINGLE_CRAFT_READY, String.valueOf(true));
+            if (!String.valueOf(true).equals(blockData.getData(SINGLE_CRAFT_READY))) {
+                blockData.setData(SINGLE_CRAFT_READY, String.valueOf(true));
+            }
             return;
         }
 
-        if (getCharge(block.getLocation()) < getEnergyConsumption()) {
+        if (getCharge(location) < getEnergyConsumption()) {
             return;
         }
 
-        craftIfValid(block, menu);
+        craftIfValid(blockData, menu, location);
     }
 
-    private void craftIfValid(Block block, BlockMenu menu) {
+    private void craftIfValid(SlimefunBlockData blockData, BlockMenu menu, Location location) {
         for (int outSlot : getOutputSlots()) {
             ItemStack outItem = menu.getItemInSlot(outSlot);
             if (outItem == null || outItem.getAmount() < outItem.getMaxStackSize()) {
@@ -286,17 +311,43 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
             }
         }
 
-        boolean singleCraftReady = Boolean.parseBoolean(
-            StorageCacheUtils.getData(block.getLocation(), SINGLE_CRAFT_READY)
-        );
+        boolean singleCraftReady = Boolean.parseBoolean(blockData.getData(SINGLE_CRAFT_READY));
+        String blockKey = blockData.getKey();
+        CachedRecipe cachedRecipe = recipeCache.get(blockKey);
+        RecipeMatch match = RecipeMatch.NONE;
 
-        CachedRecipe cachedRecipe = getCachedRecipe(block, menu);
+        if (cachedRecipe != null) {
+            if (cachedRecipe.hasRecipe()) {
+                match = getRecipeMatch(menu, cachedRecipe.recipeInput);
+                if (match != RecipeMatch.NONE) {
+                    craftCachedRecipe(blockData, menu, location, cachedRecipe, match, singleCraftReady);
+                    return;
+                }
+            }
+
+            // Keep negative caches and amount-only failures cached. Only resolve again if the
+            // amount-independent recipe template actually changed.
+            if (cachedRecipe.matches(menu)) {
+                return;
+            }
+        }
+
+        cachedRecipe = resolveRecipe(blockKey, menu);
         if (!cachedRecipe.hasRecipe()) {
             return;
         }
 
-        RecipeMatch match = getRecipeMatch(menu, cachedRecipe.recipeInput);
-        if (match == RecipeMatch.NONE || (match == RecipeMatch.SINGLE && !singleCraftReady)) {
+        match = getRecipeMatch(menu, cachedRecipe.recipeInput);
+        if (match == RecipeMatch.NONE) {
+            return;
+        }
+
+        craftCachedRecipe(blockData, menu, location, cachedRecipe, match, singleCraftReady);
+    }
+
+    private void craftCachedRecipe(SlimefunBlockData blockData, BlockMenu menu, Location location,
+                                   CachedRecipe cachedRecipe, RecipeMatch match, boolean singleCraftReady) {
+        if (match == RecipeMatch.SINGLE && !singleCraftReady) {
             return;
         }
 
@@ -306,26 +357,24 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
         }
 
         craft(output, menu);
-        StorageCacheUtils.setData(block.getLocation(), SINGLE_CRAFT_READY, String.valueOf(false));
-        removeCharge(block.getLocation(), getEnergyConsumption());
+        blockData.setData(SINGLE_CRAFT_READY, String.valueOf(false));
+        removeCharge(location, getEnergyConsumption());
     }
 
-    private CachedRecipe getCachedRecipe(Block block, BlockMenu menu) {
-        String blockKey = getBlockKey(block);
-        CachedRecipe cached = recipeCache.get(blockKey);
-
-        if (cached != null && cached.matches(menu)) {
-            return cached;
-        }
-
+    private CachedRecipe resolveRecipe(String blockKey, BlockMenu menu) {
         ItemStack[] template = snapshotTemplate(menu);
-        for (ItemStack[] input : RecipeType.getRecipeInputList(mblock)) {
-            if (!matchesRecipeTemplate(menu, input)) {
+        int shape = getShape(template);
+
+        for (IndexedRecipe recipe : getRecipeCandidates(shape)) {
+            if (!matchesRecipeTemplate(menu, recipe.input)) {
                 continue;
             }
 
-            ItemStack output = RecipeType.getRecipeOutputList(mblock, input);
-            CachedRecipe resolved = new CachedRecipe(template, input, output == null ? null : output.clone());
+            CachedRecipe resolved = new CachedRecipe(
+                template,
+                recipe.input,
+                recipe.output == null ? null : recipe.output.clone()
+            );
             recipeCache.put(blockKey, resolved);
             return resolved;
         }
@@ -333,6 +382,57 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
         CachedRecipe noMatch = new CachedRecipe(template, null, null);
         recipeCache.put(blockKey, noMatch);
         return noMatch;
+    }
+
+    private List<IndexedRecipe> getRecipeCandidates(int shape) {
+        ensureRecipeIndex();
+        return recipeShapeIndex.getOrDefault(shape, List.of());
+    }
+
+    private void ensureRecipeIndex() {
+        List<ItemStack[]> recipeStorage = mblock.getRecipes();
+        int storageSize = recipeStorage.size();
+        if (storageSize == indexedRecipeStorageSize) {
+            return;
+        }
+
+        synchronized (recipeIndexLock) {
+            recipeStorage = mblock.getRecipes();
+            storageSize = recipeStorage.size();
+            if (storageSize == indexedRecipeStorageSize) {
+                return;
+            }
+
+            Map<Integer, List<IndexedRecipe>> newIndex = new HashMap<>();
+            for (int i = 0; i + 1 < storageSize; i += 2) {
+                ItemStack[] input = recipeStorage.get(i);
+                if (input == null || input.length != getInputSlots().length) {
+                    continue;
+                }
+
+                ItemStack[] outputEntry = recipeStorage.get(i + 1);
+                ItemStack output = outputEntry != null && outputEntry.length > 0 ? outputEntry[0] : null;
+                int shape = getShape(input);
+                newIndex.computeIfAbsent(shape, ignored -> new ArrayList<>())
+                    .add(new IndexedRecipe(input, output));
+            }
+
+            Map<Integer, List<IndexedRecipe>> immutableIndex = new HashMap<>();
+            newIndex.forEach((shape, recipes) -> immutableIndex.put(shape, List.copyOf(recipes)));
+            recipeShapeIndex = Map.copyOf(immutableIndex);
+            indexedRecipeStorageSize = storageSize;
+        }
+    }
+
+    private int getShape(ItemStack[] items) {
+        int shape = 0;
+        for (int i = 0; i < getInputSlots().length; i++) {
+            ItemStack item = items[i];
+            if (item != null && item.getType() != Material.AIR) {
+                shape |= 1 << i;
+            }
+        }
+        return shape;
     }
 
     private boolean matchesRecipeTemplate(BlockMenu inv, ItemStack[] recipe) {
@@ -361,10 +461,6 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
             }
         }
         return template;
-    }
-
-    private String getBlockKey(Block block) {
-        return block.getWorld().getUID() + ":" + block.getX() + ":" + block.getY() + ":" + block.getZ();
     }
 
     private boolean isInputGridEmpty(BlockMenu menu) {
@@ -418,6 +514,16 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
         }
 
         inv.pushItem(output, outputSlots);
+    }
+
+    private static final class IndexedRecipe {
+        private final ItemStack[] input;
+        private final ItemStack output;
+
+        private IndexedRecipe(ItemStack[] input, ItemStack output) {
+            this.input = input;
+            this.output = output;
+        }
     }
 
     private final class CachedRecipe {
