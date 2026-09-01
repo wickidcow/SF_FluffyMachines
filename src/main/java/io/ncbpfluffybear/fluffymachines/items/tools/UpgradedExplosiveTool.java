@@ -165,7 +165,7 @@ class UpgradedExplosiveTool extends ExplosiveTool {
 
     private void breakBlock(Player p, ItemStack item, Block b, List<ItemStack> drops) {
         Slimefun.getProtectionManager().logAction(p, b, Interaction.BREAK_BLOCK);
-        b.getWorld().playEffect(b.getLocation(), Effect.DESTROY_BLOCK, b.getBlockData());
+        playBlockBreakEffect(b);
         SlimefunItem sfItem = StorageCacheUtils.getSfItem(b.getLocation());
 
         // Don't break SF blocks
@@ -181,5 +181,21 @@ class UpgradedExplosiveTool extends ExplosiveTool {
         b.breakNaturally(item);
 
         damageItem(p, item);
+    }
+
+    private void playBlockBreakEffect(Block block) {
+        Effect effect;
+
+        try {
+            effect = Effect.valueOf("DESTROY_BLOCK");
+        } catch (IllegalArgumentException ignored) {
+            effect = Effect.valueOf("STEP_SOUND");
+        }
+
+        Object effectData = "DESTROY_BLOCK".equals(effect.name())
+            ? block.getBlockData()
+            : block.getType();
+
+        block.getWorld().playEffect(block.getLocation(), effect, effectData);
     }
 }
