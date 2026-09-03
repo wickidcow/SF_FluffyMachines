@@ -5,7 +5,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>io.ncbpfluffybear</groupId>
     <artifactId>FluffyMachines</artifactId>
-    <version>26.2.10-legacy-english</version>
+    <version>26.2.11-legacy-english</version>
 
     <properties>
         <maven.compiler.release>21</maven.compiler.release>
@@ -52,6 +52,6 @@
         <dependency><groupId>${slimefun.groupId}</groupId><artifactId>${slimefun.artifactId}</artifactId><version>${slimefun.version}</version><scope>provided</scope></dependency>
         <dependency><groupId>com.google.code.findbugs</groupId><artifactId>jsr305</artifactId><version>3.0.2</version><scope>provided</scope></dependency>
         <dependency><groupId>org.bstats</groupId><artifactId>bstats-bukkit</artifactId><version>3.0.2</version><scope>compile</scope></dependency>
-        <dependency><groupId>com.github.slimefunguguproject</groupId><artifactId>ExtraUtils</artifactId><version>bf89aee6ae</version></dependency>
+        <dependency><groupId>com.github.Slimefun-Addon-Community</groupId><artifactId>ExtraUtils</artifactId><version>bf89aee6ae</version></dependency>
     </dependencies>
 </project>
