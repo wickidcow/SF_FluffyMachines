@@ -12,8 +12,8 @@ permissions:
   contents: write
 
 env:
-  LEGACY_ARTIFACT_VERSION: "26.2.10"
-  OUTPUT_NAME: "SF_FluffyMachines26.2.10.jar"
+  LEGACY_ARTIFACT_VERSION: "26.2.11"
+  OUTPUT_NAME: "SF_FluffyMachines26.2.11.jar"
 
 concurrency:
   group: fluffy-machines-${{ github.workflow }}-${{ github.ref }}
@@ -49,6 +49,7 @@ jobs:
           grep -Fq '<maven.compiler.release>21</maven.compiler.release>' pom.xml
           grep -Fq '<paper.version>1.21.11-R0.1-SNAPSHOT</paper.version>' pom.xml
           grep -Fq "api-version: '1.21.11'" src/main/resources/plugin.yml
+          grep -Fq '<groupId>com.github.Slimefun-Addon-Community</groupId>' pom.xml
       - name: Verify Paper 1.21.11 compile baseline
         run: >-
           mvn -B clean verify --file pom.xml
@@ -97,7 +98,7 @@ jobs:
           set -euo pipefail
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then TAG="$GITHUB_REF_NAME"; else TAG="v${LEGACY_ARTIFACT_VERSION}"; fi
           JAR="dist/${OUTPUT_NAME}"
-          NOTES="Compatibility update: one FluffyMachines JAR now targets Minecraft/Purpur 1.21.11 through Paper/Purpur 26.2, emits Java 21 bytecode, and is compile-verified at both supported endpoints. Existing performance fixes remain included."
+          NOTES="FluffyMachines 26.2.11: fixes the remaining Chinese power-buffer text in machine descriptions by returning to the English ExtraUtils source while keeping the dynamic power calculations. Java 21 universal bytecode and the 1.21.11 through 26.2 compatibility checks remain included."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$JAR" --clobber
           else
