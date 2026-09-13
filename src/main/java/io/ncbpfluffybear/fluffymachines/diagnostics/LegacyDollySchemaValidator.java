@@ -6,6 +6,7 @@ import io.github.thebusybiscuit.slimefun4.implementation.Slimefun;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import javax.annotation.Nullable;
 import org.bukkit.Bukkit;
 
 /** Read-only persistent-state verification for historical Dolly lore bindings. */
@@ -18,7 +19,8 @@ final class LegacyDollySchemaValidator {
         if (parsed == null) {
             return CompletableFuture.completedFuture(new Result(
                     "MANUAL_ONLY",
-                    "Legacy Dolly validation claim could not be interpreted safely."));
+                    "Legacy Dolly validation claim could not be interpreted safely.",
+                    null));
         }
 
         CompletableFuture<Result> result = new CompletableFuture<>();
@@ -38,27 +40,36 @@ final class LegacyDollySchemaValidator {
                                 public void onResultNotFound() {
                                     result.complete(new Result(
                                             "BACKING_DATA_MISSING",
-                                            "The referenced Dolly backing backpack does not exist."));
+                                            "The referenced Dolly backing backpack does not exist.",
+                                            null));
                                 }
                             });
         } catch (RuntimeException exception) {
             result.complete(new Result(
                     "MANUAL_ONLY",
-                    "Legacy Dolly backing storage could not be validated safely."));
+                    "Legacy Dolly backing storage could not be validated safely.",
+                    null));
         }
         return result;
     }
 
     private static Result classify(ParsedClaim parsed, PlayerBackpack backpack) {
         if (backpack == null) {
-            return new Result("BACKING_DATA_MISSING", "The referenced Dolly backing backpack does not exist.");
+            return new Result(
+                    "BACKING_DATA_MISSING",
+                    "The referenced Dolly backing backpack does not exist.",
+                    null);
         }
         if (!parsed.owner().equals(backpack.getOwner().getUniqueId()) || parsed.backpackId() != backpack.getId()) {
-            return new Result("STATE_MISMATCH", "The resolved Dolly backing backpack does not match the legacy binding.");
+            return new Result(
+                    "STATE_MISMATCH",
+                    "The resolved Dolly backing backpack does not match the legacy binding.",
+                    null);
         }
         return new Result(
                 "VERIFIED",
-                "The legacy Dolly binding resolves to an existing backpack with matching ownership and number.");
+                "The legacy Dolly binding resolves to an existing backpack with matching ownership and number.",
+                backpack.getUniqueId().toString());
     }
 
     private static ParsedClaim parse(String claim) {
@@ -74,6 +85,6 @@ final class LegacyDollySchemaValidator {
         }
     }
 
-    record Result(String status, String detail) {}
+    record Result(String status, String detail, @Nullable String migrationPayload) {}
     private record ParsedClaim(UUID owner, int backpackId) {}
 }
