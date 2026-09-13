@@ -1,5 +1,6 @@
 package io.ncbpfluffybear.fluffymachines.diagnostics;
 
+import com.xzavier0722.mc.plugin.slimefun4.storage.callback.IAsyncReadCallback;
 import io.github.thebusybiscuit.slimefun4.api.player.PlayerBackpack;
 import io.github.thebusybiscuit.slimefun4.implementation.Slimefun;
 import java.util.UUID;
@@ -20,22 +21,35 @@ final class LegacyDollySchemaValidator {
                     "Legacy Dolly validation claim could not be interpreted safely."));
         }
 
+        CompletableFuture<Result> result = new CompletableFuture<>();
         try {
-            return Slimefun.getDatabaseManager()
+            Slimefun.getDatabaseManager()
                     .getProfileDataController()
-                    .getBackpackAsync(Bukkit.getOfflinePlayer(parsed.owner()), parsed.backpackId())
-                    .handle((backpack, error) -> classify(parsed, backpack, error));
+                    .getBackpackAsync(
+                            Bukkit.getOfflinePlayer(parsed.owner()),
+                            parsed.backpackId(),
+                            new IAsyncReadCallback<>() {
+                                @Override
+                                public void onResult(PlayerBackpack backpack) {
+                                    result.complete(classify(parsed, backpack));
+                                }
+
+                                @Override
+                                public void onResultNotFound() {
+                                    result.complete(new Result(
+                                            "BACKING_DATA_MISSING",
+                                            "The referenced Dolly backing backpack does not exist."));
+                                }
+                            });
         } catch (RuntimeException exception) {
-            return CompletableFuture.completedFuture(new Result(
+            result.complete(new Result(
                     "MANUAL_ONLY",
                     "Legacy Dolly backing storage could not be validated safely."));
         }
+        return result;
     }
 
-    private static Result classify(ParsedClaim parsed, PlayerBackpack backpack, Throwable error) {
-        if (error != null) {
-            return new Result("MANUAL_ONLY", "Legacy Dolly backing storage could not be validated safely.");
-        }
+    private static Result classify(ParsedClaim parsed, PlayerBackpack backpack) {
         if (backpack == null) {
             return new Result("BACKING_DATA_MISSING", "The referenced Dolly backing backpack does not exist.");
         }
