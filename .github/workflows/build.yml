@@ -50,6 +50,8 @@ jobs:
           grep -Fq '<paper.version>1.21.11-R0.1-SNAPSHOT</paper.version>' pom.xml
           grep -Fq "api-version: '1.21.11'" src/main/resources/plugin.yml
           grep -Fq '<groupId>com.github.Slimefun-Addon-Community</groupId>' pom.xml
+      - name: Verify Doctor migration safety contract
+        run: python3 scripts/verify_doctor_migration.py .
       - name: Verify Paper 1.21.11 compile baseline
         run: >-
           mvn -B clean verify --file pom.xml
