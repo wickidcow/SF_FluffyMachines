@@ -31,6 +31,8 @@ public final class LegacyDoctorBridge {
             "io.github.thebusybiscuit.slimefun4.api.diagnostics.LegacyItemSchemaValidation";
     private static final String SCHEMA_VALIDATION_STATUS_API =
             "io.github.thebusybiscuit.slimefun4.api.diagnostics.LegacyItemSchemaValidation$Status";
+    private static final String SCHEMA_MIGRATOR_API =
+            "io.github.thebusybiscuit.slimefun4.api.diagnostics.LegacyItemSchemaMigrator";
 
     private LegacyDoctorBridge() {}
 
@@ -42,6 +44,7 @@ public final class LegacyDoctorBridge {
         registerAddonDoctor(plugin, loader);
         registerSchemaProbe(plugin, loader);
         registerSchemaValidator(plugin, loader);
+        registerSchemaMigrator(plugin, loader);
     }
 
     private static void registerAddonDoctor(FluffyMachines plugin, ClassLoader loader) {
@@ -98,10 +101,20 @@ public final class LegacyDoctorBridge {
             Class<?> validatorInterface = Class.forName(SCHEMA_VALIDATOR_API, false, loader);
             Class<?> validationClass = Class.forName(SCHEMA_VALIDATION_API, false, loader);
             Class<?> statusClass = Class.forName(SCHEMA_VALIDATION_STATUS_API, false, loader);
-            Constructor<?> validationConstructor = validationClass.getConstructor(statusClass, String.class);
+            Constructor<?> validationConstructor;
+            boolean supportsMigrationPayload;
+            try {
+                validationConstructor = validationClass.getConstructor(statusClass, String.class, String.class);
+                supportsMigrationPayload = true;
+            } catch (NoSuchMethodException ignored) {
+                validationConstructor = validationClass.getConstructor(statusClass, String.class);
+                supportsMigrationPayload = false;
+            }
             Method statusValueOf = statusClass.getMethod("valueOf", String.class);
+            Constructor<?> finalConstructor = validationConstructor;
+            boolean finalSupportsPayload = supportsMigrationPayload;
             InvocationHandler handler = (proxy, method, arguments) -> invokeSchemaValidator(
-                    proxy, method, arguments, validationConstructor, statusValueOf);
+                    proxy, method, arguments, finalConstructor, statusValueOf, finalSupportsPayload);
             Object provider = Proxy.newProxyInstance(loader, new Class<?>[] {validatorInterface}, handler);
             registerRaw(Bukkit.getServicesManager(), validatorInterface, provider, plugin);
             plugin.getLogger().info("Registered Fluffy Machines Dolly backing-state validator with Slimefun Doctor.");
@@ -110,6 +123,21 @@ public final class LegacyDoctorBridge {
         } catch (ReflectiveOperationException | RuntimeException exception) {
             plugin.getLogger().log(
                     Level.WARNING, "Could not register the optional Slimefun schema validator.", exception);
+        }
+    }
+
+    private static void registerSchemaMigrator(FluffyMachines plugin, ClassLoader loader) {
+        try {
+            Class<?> migratorInterface = Class.forName(SCHEMA_MIGRATOR_API, false, loader);
+            InvocationHandler handler = LegacyDoctorBridge::invokeSchemaMigrator;
+            Object provider = Proxy.newProxyInstance(loader, new Class<?>[] {migratorInterface}, handler);
+            registerRaw(Bukkit.getServicesManager(), migratorInterface, provider, plugin);
+            plugin.getLogger().info("Registered Fluffy Machines Dolly schema migrator with Slimefun Doctor.");
+        } catch (ClassNotFoundException ignored) {
+            // Schema mutation is optional and only available on newer Slimefun Legacy builds.
+        } catch (RuntimeException exception) {
+            plugin.getLogger().log(
+                    Level.WARNING, "Could not register the optional Slimefun schema migrator.", exception);
         }
     }
 
@@ -161,7 +189,6 @@ public final class LegacyDoctorBridge {
                             result.candidateType(), readiness, result.detail(), result.validationClaim());
                 }
                 if (result.validationClaim() != null) {
-                    // Older probe APIs cannot carry a private validation claim, so do not claim automatic readiness.
                     Object manual = readinessValueOf.invoke(null, "MANUAL_ONLY");
                     yield candidateConstructor.newInstance(
                             result.candidateType(), manual,
@@ -182,7 +209,8 @@ public final class LegacyDoctorBridge {
             Method method,
             Object[] arguments,
             Constructor<?> validationConstructor,
-            Method statusValueOf)
+            Method statusValueOf,
+            boolean supportsMigrationPayload)
             throws ReflectiveOperationException {
         return switch (method.getName()) {
             case "getSupportedCandidateTypes" -> Set.of(LegacyDollySchemaProbe.CANDIDATE_TYPE);
@@ -196,6 +224,9 @@ public final class LegacyDoctorBridge {
                 yield LegacyDollySchemaValidator.validate(claim).thenApply(result -> {
                     try {
                         Object status = statusValueOf.invoke(null, result.status());
+                        if (supportsMigrationPayload) {
+                            return validationConstructor.newInstance(status, result.detail(), result.migrationPayload());
+                        }
                         return validationConstructor.newInstance(status, result.detail());
                     } catch (ReflectiveOperationException exception) {
                         throw new IllegalStateException("Could not create Slimefun schema validation result", exception);
@@ -207,6 +238,29 @@ public final class LegacyDoctorBridge {
             case "equals" -> arguments != null && arguments.length == 1 && arguments[0] == proxy;
             default -> throw new UnsupportedOperationException(
                     "Unsupported LegacyItemSchemaValidator method: " + method.getName());
+        };
+    }
+
+    private static Object invokeSchemaMigrator(Object proxy, Method method, Object[] arguments) {
+        return switch (method.getName()) {
+            case "getSupportedCandidateTypes" -> Set.of(LegacyDollySchemaProbe.CANDIDATE_TYPE);
+            case "migrateItem" -> {
+                if (arguments == null
+                        || arguments.length < 5
+                        || !(arguments[0] instanceof ItemStack item)
+                        || !"DOLLY".equals(arguments[1])
+                        || !LegacyDollySchemaProbe.CANDIDATE_TYPE.equals(arguments[2])
+                        || !(arguments[3] instanceof String claim)
+                        || !(arguments[4] instanceof String payload)) {
+                    yield false;
+                }
+                yield LegacyDollySchemaMigrator.migrate(item, claim, payload);
+            }
+            case "toString" -> "FluffyMachinesLegacyItemSchemaMigrator";
+            case "hashCode" -> System.identityHashCode(proxy);
+            case "equals" -> arguments != null && arguments.length == 1 && arguments[0] == proxy;
+            default -> throw new UnsupportedOperationException(
+                    "Unsupported LegacyItemSchemaMigrator method: " + method.getName());
         };
     }
 
