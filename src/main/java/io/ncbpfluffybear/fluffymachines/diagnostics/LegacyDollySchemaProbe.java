@@ -11,47 +11,41 @@ import org.bukkit.inventory.meta.ItemMeta;
 /** Read-only recognition of historical Dolly backpack bindings. */
 final class LegacyDollySchemaProbe {
 
+    static final String CANDIDATE_TYPE = "legacy-dolly-backpack-binding";
     private static final String LEGACY_ID_PREFIX = "ID: ";
 
     private LegacyDollySchemaProbe() {}
 
     @Nullable
     static Result inspect(ItemStack item) {
-        if (item == null) {
-            return null;
-        }
+        if (item == null) return null;
 
         ItemMeta meta = item.getItemMeta();
-        if (meta == null || PlayerBackpack.getBackpackUUID(meta).isPresent()) {
-            return null;
-        }
+        if (meta == null || PlayerBackpack.getBackpackUUID(meta).isPresent()) return null;
 
         List<String> lore = meta.hasLore() ? meta.getLore() : null;
-        if (lore == null || lore.isEmpty()) {
-            return null;
-        }
+        if (lore == null || lore.isEmpty()) return null;
 
         boolean legacyLookingBinding = false;
         for (String line : lore) {
             String plain = ChatColor.stripColor(line);
-            if (plain == null || !plain.startsWith(LEGACY_ID_PREFIX)) {
-                continue;
-            }
+            if (plain == null || !plain.startsWith(LEGACY_ID_PREFIX)) continue;
 
             legacyLookingBinding = true;
             int separator = plain.lastIndexOf('#');
-            if (separator <= LEGACY_ID_PREFIX.length() || separator >= plain.length() - 1) {
-                continue;
-            }
+            if (separator <= LEGACY_ID_PREFIX.length() || separator >= plain.length() - 1) continue;
 
             try {
-                UUID.fromString(plain.substring(LEGACY_ID_PREFIX.length(), separator));
+                UUID owner = UUID.fromString(plain.substring(LEGACY_ID_PREFIX.length(), separator));
                 int backpackId = Integer.parseInt(plain.substring(separator + 1));
                 if (backpackId >= 0) {
+                    // The claim is kept in-memory by Slimefun Doctor and is never included in operator output.
+                    String validationClaim = owner + "#" + backpackId;
                     return new Result(
-                            "legacy-dolly-backpack-binding",
+                            CANDIDATE_TYPE,
                             "VALIDATION_REQUIRED",
-                            "Legacy Dolly backpack binding requires database verification before conversion");
+                            "Legacy Dolly backpack binding requires database verification before conversion",
+                            validationClaim);
                 }
             } catch (IllegalArgumentException ignored) {
                 // A legacy-looking line exists, but it is not safe to interpret automatically.
@@ -62,10 +56,11 @@ final class LegacyDollySchemaProbe {
             return new Result(
                     "malformed-legacy-dolly-binding",
                     "MANUAL_ONLY",
-                    "Dolly contains a legacy-looking storage binding that could not be parsed safely");
+                    "Dolly contains a legacy-looking storage binding that could not be parsed safely",
+                    null);
         }
         return null;
     }
 
-    record Result(String candidateType, String readiness, String detail) {}
+    record Result(String candidateType, String readiness, String detail, @Nullable String validationClaim) {}
 }
