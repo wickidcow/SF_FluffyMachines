@@ -32,6 +32,7 @@ validator = read("src/main/java/io/ncbpfluffybear/fluffymachines/diagnostics/Leg
 migrator = read("src/main/java/io/ncbpfluffybear/fluffymachines/diagnostics/LegacyDollySchemaMigrator.java")
 doctor = read("src/main/java/io/ncbpfluffybear/fluffymachines/diagnostics/FluffyDoctor.java")
 plugin = read("src/main/java/io/ncbpfluffybear/fluffymachines/FluffyMachines.java")
+bridge_compact = " ".join(bridge.split())
 
 require('"io.github.thebusybiscuit.slimefun4.api.diagnostics.LegacyItemSchemaProbe"' in bridge,
         "reflective LegacyItemSchemaProbe binding is missing")
@@ -39,9 +40,9 @@ require('"io.github.thebusybiscuit.slimefun4.api.diagnostics.LegacyItemSchemaVal
         "reflective LegacyItemSchemaValidator binding is missing")
 require('"io.github.thebusybiscuit.slimefun4.api.diagnostics.LegacyItemSchemaMigrator"' in bridge,
         "reflective LegacyItemSchemaMigrator binding is missing")
-require('getConstructor(String.class, readinessClass, String.class, String.class)' in bridge,
+require('candidateClass.getConstructor( String.class, readinessClass, String.class, String.class)' in bridge_compact,
         "schema candidate validation-claim constructor compatibility is missing")
-require('getConstructor(statusClass, String.class, String.class)' in bridge,
+require('validationClass.getConstructor(statusClass, String.class, String.class)' in bridge_compact,
         "schema validation migration-payload constructor compatibility is missing")
 require('case "getSupportedItemIds" -> Set.of("DOLLY")' in bridge,
         "Dolly schema probe must remain scoped to the DOLLY Slimefun ID")
