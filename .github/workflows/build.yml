@@ -13,8 +13,8 @@ permissions:
   contents: write
 
 env:
-  LEGACY_ARTIFACT_VERSION: "26.2.11"
-  OUTPUT_NAME: "SF_FluffyMachines26.2.11.jar"
+  LEGACY_ARTIFACT_VERSION: "26.2.12"
+  OUTPUT_NAME: "SF_FluffyMachines26.2.12.jar"
 
 concurrency:
   group: fluffy-machines-${{ github.workflow }}-${{ github.ref }}
@@ -47,10 +47,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          grep -Fq '<version>26.2.12</version>' pom.xml
           grep -Fq '<maven.compiler.release>21</maven.compiler.release>' pom.xml
           grep -Fq '<paper.version>1.21.11-R0.1-SNAPSHOT</paper.version>' pom.xml
+          grep -Fq '<finalName>SF_FluffyMachines${project.version}</finalName>' pom.xml
           grep -Fq "api-version: '1.21.11'" src/main/resources/plugin.yml
-          grep -Fq '<groupId>com.github.Slimefun-Addon-Community</groupId>' pom.xml
       - name: Verify Doctor migration safety contract
         run: python3 scripts/verify_doctor_migration.py .
       - name: Verify Paper 1.21.11 compile baseline
@@ -63,7 +64,14 @@ jobs:
       - name: Verify Paper 26.2 compile compatibility
         run: >-
           mvn -B clean verify --file pom.xml
-          -Dpaper.version=26.2.build.111-stable
+          "-Dpaper.version=[26.2.build,26.3)"
+          -Dslimefun.groupId=com.github.slimefun
+          -Dslimefun.artifactId=Slimefun
+          -Dslimefun.version=ALBION-SNAPSHOT
+      - name: Verify Paper 26.3 alpha compile compatibility
+        run: >-
+          mvn -B clean verify --file pom.xml
+          -Dpaper.version=26.3-rc-3.build.1-alpha
           -Dslimefun.groupId=com.github.slimefun
           -Dslimefun.artifactId=Slimefun
           -Dslimefun.version=ALBION-SNAPSHOT
@@ -74,14 +82,14 @@ jobs:
           -Dslimefun.groupId=com.github.slimefun
           -Dslimefun.artifactId=Slimefun
           -Dslimefun.version=ALBION-SNAPSHOT
-      - name: Stage versioned JAR
+      - name: Stage and verify versioned JAR
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist
-          mapfile -t jars < <(find target -maxdepth 1 -type f -name '*.jar' ! -name 'original-*' ! -name '*-sources.jar' ! -name '*-javadoc.jar')
-          test "${#jars[@]}" -eq 1
-          cp "${jars[0]}" "dist/${OUTPUT_NAME}"
+          JAR="target/${OUTPUT_NAME}"
+          test -s "$JAR"
+          cp "$JAR" "dist/${OUTPUT_NAME}"
           JAR="dist/${OUTPUT_NAME}"
           unzip -p "$JAR" plugin.yml | grep -Fq "api-version: '1.21.11'"
           javap -verbose -classpath "$JAR" io.ncbpfluffybear.fluffymachines.FluffyMachines | grep -Fq 'major version: 65'
@@ -89,6 +97,7 @@ jobs:
       - name: Upload raw JAR artifact
         uses: actions/upload-artifact@v7
         with:
+          name: ${{ env.OUTPUT_NAME }}
           path: dist/${{ env.OUTPUT_NAME }}
           archive: false
           if-no-files-found: error
@@ -101,7 +110,7 @@ jobs:
           set -euo pipefail
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then TAG="$GITHUB_REF_NAME"; else TAG="v${LEGACY_ARTIFACT_VERSION}"; fi
           JAR="dist/${OUTPUT_NAME}"
-          NOTES="FluffyMachines 26.2.11: fixes the remaining Chinese power-buffer text in machine descriptions by returning to the English ExtraUtils source while keeping the dynamic power calculations. Java 21 universal bytecode and the 1.21.11 through 26.2 compatibility checks remain included."
+          NOTES="FluffyMachines 26.2.12 adds Paper 26.3 alpha compatibility validation while preserving the Java 21 universal release, the Paper 1.21.11 baseline, and Paper 26.2 as the primary production target. The Maven build now emits ${OUTPUT_NAME} directly without legacy or English suffixes."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$JAR" --clobber
           else
