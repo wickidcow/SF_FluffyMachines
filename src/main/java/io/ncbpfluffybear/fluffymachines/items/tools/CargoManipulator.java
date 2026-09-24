@@ -261,7 +261,7 @@ public class CargoManipulator extends SimpleSlimefunItem<ItemUseHandler> impleme
             return null;
         }
 
-        SlimefunItem item = StorageCacheUtils.getSfItem(b.getLocation());
+        SlimefunItem item = StorageCacheUtils.getSlimefunItem(b.getLocation());
         return item == null ? null : (SlimefunItemStack) item.getItem();
     }
 
