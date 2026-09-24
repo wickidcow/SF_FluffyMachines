@@ -81,7 +81,7 @@ public class FluffyWrench extends SimpleSlimefunItem<ItemUseHandler> implements 
             block.getLocation(), Interaction.BREAK_BLOCK)
         ) {
             e.setCancelled(true);
-            SlimefunItem slimefunBlock = StorageCacheUtils.getSfItem(block.getLocation());
+            SlimefunItem slimefunBlock = StorageCacheUtils.getSlimefunItem(block.getLocation());
 
             // Check if slimefunBlock is not a machine or a cargo component
             if (slimefunBlock == null
