@@ -223,7 +223,7 @@ public class Events implements Listener {
             return;
         }
 
-        SlimefunItem item = StorageCacheUtils.getSfItem(e.getClickedBlock().getLocation());
+        SlimefunItem item = StorageCacheUtils.getSlimefunItem(e.getClickedBlock().getLocation());
         if (item != null && item.getId().equals(FluffyItems.ALTERNATE_ELEVATOR_PLATE.getItemId())) {
             AlternateElevatorPlate elevator = ((AlternateElevatorPlate) FluffyItems.ALTERNATE_ELEVATOR_PLATE.getItem());
             elevator.openInterface(e.getPlayer(), e.getClickedBlock());
@@ -249,7 +249,7 @@ public class Events implements Listener {
 
     @EventHandler(ignoreCancelled = true)
     public void onBarrelBurn(BlockBurnEvent e) {
-        if (StorageCacheUtils.getSfItem(e.getBlock().getLocation()) instanceof Barrel) {
+        if (StorageCacheUtils.getSlimefunItem(e.getBlock().getLocation()) instanceof Barrel) {
             e.setCancelled(true);
         }
     }
