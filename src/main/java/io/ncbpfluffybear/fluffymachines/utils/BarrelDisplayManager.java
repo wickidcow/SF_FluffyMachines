@@ -236,7 +236,7 @@ public final class BarrelDisplayManager {
             }
 
             Block block = result.getHitBlock();
-            if (!(StorageCacheUtils.getSfItem(block.getLocation()) instanceof Barrel barrel)
+            if (!(StorageCacheUtils.getSlimefunItem(block.getLocation()) instanceof Barrel barrel)
                 || !isInsideFrontHoverZone(result, block)) {
                 continue;
             }
