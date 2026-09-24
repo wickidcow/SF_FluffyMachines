@@ -166,7 +166,7 @@ class UpgradedExplosiveTool extends ExplosiveTool {
     private void breakBlock(Player p, ItemStack item, Block b, List<ItemStack> drops) {
         Slimefun.getProtectionManager().logAction(p, b, Interaction.BREAK_BLOCK);
         playBlockBreakEffect(b);
-        SlimefunItem sfItem = StorageCacheUtils.getSfItem(b.getLocation());
+        SlimefunItem sfItem = StorageCacheUtils.getSlimefunItem(b.getLocation());
 
         // Don't break SF blocks
         if (sfItem != null) {
