@@ -44,7 +44,7 @@ public class ACBUpgradeCard extends SimpleSlimefunItem<ItemHandler> {
             e.cancel();
 
             Block b = optB.get();
-            SlimefunItem sfItem = StorageCacheUtils.getSfItem(b.getLocation());
+            SlimefunItem sfItem = StorageCacheUtils.getSlimefunItem(b.getLocation());
             Player p = e.getPlayer();
             ItemStack card = p.getInventory().getItemInMainHand();
 
