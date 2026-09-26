@@ -16,7 +16,8 @@ import io.ncbpfluffybear.fluffymachines.FluffyMachines;
 import io.ncbpfluffybear.fluffymachines.utils.FluffyItems;
 import io.ncbpfluffybear.fluffymachines.utils.Utils;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.NamespacedKey;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
@@ -75,11 +76,12 @@ public class WarpPadConfigurator extends SlimefunItem implements HologramOwner, 
                     return;
                 }
 
-                List<String> lore = meta.hasLore()
-                    ? new ArrayList<>(meta.getLore())
-                    : new ArrayList<>();
+                List<Component> existingLore = meta.hasLore() ? meta.lore() : null;
+                List<Component> lore = existingLore == null
+                    ? new ArrayList<>()
+                    : new ArrayList<>(existingLore);
                 while (lore.size() <= LORE_COORDINATE_INDEX) {
-                    lore.add("");
+                    lore.add(Component.empty());
                 }
 
                 if (e.getAction() == Action.RIGHT_CLICK_BLOCK) {
@@ -90,10 +92,16 @@ public class WarpPadConfigurator extends SlimefunItem implements HologramOwner, 
                             PersistentDataAPI.setInt(meta, xCoord, b.getX());
                             PersistentDataAPI.setInt(meta, yCoord, b.getY());
                             PersistentDataAPI.setInt(meta, zCoord, b.getZ());
-                            lore.set(LORE_COORDINATE_INDEX, ChatColor.translateAlternateColorCodes(
-                                '&', "&eLinked coordinates: &7" + b.getX() + ", " + b.getY() + ", " + b.getZ()));
+                            lore.set(
+                                LORE_COORDINATE_INDEX,
+                                Component.text("Linked coordinates: ", NamedTextColor.YELLOW)
+                                    .append(Component.text(
+                                        b.getX() + ", " + b.getY() + ", " + b.getZ(),
+                                        NamedTextColor.GRAY
+                                    ))
+                            );
 
-                            meta.setLore(lore);
+                            meta.lore(lore);
                             item.setItemMeta(meta);
 
                             updateHologram(b, "&a&lDestination");

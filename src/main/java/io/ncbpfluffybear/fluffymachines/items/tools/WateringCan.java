@@ -4,7 +4,6 @@ import com.xzavier0722.mc.plugin.slimefun4.storage.util.StorageCacheUtils;
 import io.github.thebusybiscuit.slimefun4.api.items.settings.DoubleRangeSetting;
 import io.github.thebusybiscuit.slimefun4.api.items.settings.IntRangeSetting;
 import io.github.thebusybiscuit.slimefun4.implementation.Slimefun;
-import io.github.thebusybiscuit.slimefun4.libraries.dough.common.ChatColors;
 import io.ncbpfluffybear.fluffymachines.utils.CancelPlace;
 import io.github.thebusybiscuit.slimefun4.api.items.ItemGroup;
 import io.github.thebusybiscuit.slimefun4.api.items.SlimefunItemStack;
@@ -16,6 +15,8 @@ import io.github.thebusybiscuit.slimefun4.api.items.ItemSetting;
 import io.github.thebusybiscuit.slimefun4.core.handlers.ItemUseHandler;
 import io.github.thebusybiscuit.slimefun4.implementation.items.SimpleSlimefunItem;
 import io.github.thebusybiscuit.slimefun4.api.recipes.RecipeType;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
 import org.bukkit.FluidCollisionMode;
 import org.bukkit.Location;
@@ -216,11 +217,12 @@ public class WateringCan extends SimpleSlimefunItem<ItemUseHandler> implements C
             return false;
         }
 
-        List<String> lore = meta.hasLore()
-            ? new ArrayList<>(meta.getLore())
-            : new ArrayList<>();
+        List<Component> existingLore = meta.hasLore() ? meta.lore() : null;
+        List<Component> lore = existingLore == null
+            ? new ArrayList<>()
+            : new ArrayList<>(existingLore);
         while (lore.size() <= USE_INDEX) {
-            lore.add("");
+            lore.add(Component.empty());
         }
         int usesLeft = meta.getPersistentDataContainer().getOrDefault(usageKey, PersistentDataType.INTEGER, 0);
 
@@ -250,8 +252,12 @@ public class WateringCan extends SimpleSlimefunItem<ItemUseHandler> implements C
             return false;
         }
 
-        lore.set(USE_INDEX, ChatColors.color("&aWater remaining: &e" + usesLeft));
-        meta.setLore(lore);
+        lore.set(
+            USE_INDEX,
+            Component.text("Water remaining: ", NamedTextColor.GREEN)
+                .append(Component.text(usesLeft, NamedTextColor.YELLOW))
+        );
+        meta.lore(lore);
         meta.getPersistentDataContainer().set(usageKey, PersistentDataType.INTEGER, usesLeft);
         item.setItemMeta(meta);
         //Utils.send(p, "&eYou have " + usesLeft + " uses left");
