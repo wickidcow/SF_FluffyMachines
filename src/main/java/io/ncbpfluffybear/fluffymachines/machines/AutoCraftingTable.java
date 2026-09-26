@@ -23,7 +23,8 @@ import me.mrCookieSlime.Slimefun.api.inventory.BlockMenu;
 import me.mrCookieSlime.Slimefun.api.inventory.BlockMenuPreset;
 import me.mrCookieSlime.Slimefun.api.inventory.DirtyChestMenu;
 import me.mrCookieSlime.Slimefun.api.item_transport.ItemTransportFlow;
-import org.bukkit.ChatColor;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
@@ -47,6 +48,8 @@ import java.util.List;
  * @author NCBPFluffyBear
  */
 public class AutoCraftingTable extends SlimefunItem implements EnergyNetComponent {
+
+    private static final PlainTextComponentSerializer PLAIN = PlainTextComponentSerializer.plainText();
 
     public static final int ENERGY_CONSUMPTION = 128;
     public static final int CAPACITY = ENERGY_CONSUMPTION * 3;
@@ -101,9 +104,9 @@ public class AutoCraftingTable extends SlimefunItem implements EnergyNetComponen
                     ));
                 } else {
                     ItemMeta keyMeta = keyItem.getItemMeta();
-                    List<String> lore = keyMeta == null ? null : keyMeta.getLore();
+                    List<Component> lore = keyMeta == null ? null : keyMeta.lore();
                     if (lore == null || lore.isEmpty()
-                        || !ChatColor.stripColor(lore.get(0)).equals("Sneak-right-click while holding an item")) { // Check if item has been replaced
+                        || !PLAIN.serialize(lore.get(0)).equals("Sneak-right-click while holding an item")) { // Check if item has been replaced
                         menu.replaceExistingItem(KEY_SLOT, createKeyItem(keyItem.getType()));
                         if (menu.fits(keyItem, getOutputSlots())) {
                             menu.pushItem(keyItem, getOutputSlots());
