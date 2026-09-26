@@ -2,14 +2,17 @@ package io.ncbpfluffybear.fluffymachines.diagnostics;
 
 import io.github.thebusybiscuit.slimefun4.api.player.PlayerBackpack;
 import java.util.List;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import java.util.UUID;
 import javax.annotation.Nullable;
-import org.bukkit.ChatColor;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
 /** Read-only recognition of historical Dolly backpack bindings. */
 final class LegacyDollySchemaProbe {
+
+    private static final PlainTextComponentSerializer PLAIN = PlainTextComponentSerializer.plainText();
 
     static final String CANDIDATE_TYPE = "legacy-dolly-backpack-binding";
     private static final String LEGACY_ID_PREFIX = "ID: ";
@@ -23,12 +26,12 @@ final class LegacyDollySchemaProbe {
         ItemMeta meta = item.getItemMeta();
         if (meta == null || PlayerBackpack.getBackpackUUID(meta).isPresent()) return null;
 
-        List<String> lore = meta.hasLore() ? meta.getLore() : null;
+        List<Component> lore = meta.hasLore() ? meta.lore() : null;
         if (lore == null || lore.isEmpty()) return null;
 
         boolean legacyLookingBinding = false;
-        for (String line : lore) {
-            String plain = ChatColor.stripColor(line);
+        for (Component line : lore) {
+            String plain = PLAIN.serialize(line);
             if (plain == null || !plain.startsWith(LEGACY_ID_PREFIX)) continue;
 
             legacyLookingBinding = true;
