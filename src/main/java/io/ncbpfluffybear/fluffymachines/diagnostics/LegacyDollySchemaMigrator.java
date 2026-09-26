@@ -59,7 +59,7 @@ final class LegacyDollySchemaMigrator {
             if (plain != null && ownerPrefix != null && plain.startsWith(ownerPrefix)) return i;
         }
         for (int i = lore.size() - 1; i >= 3; i--) {
-            String plain = ChatColor.stripColor(lore.get(i));
+            String plain = PLAIN.serialize(lore.get(i));
             if (plain != null && !plain.startsWith("ID: ")) return i;
         }
         return -1;
