@@ -297,21 +297,21 @@ public class AdvancedAutoDisenchanter extends SlimefunItem implements EnergyNetC
         Map<Enchantment, Integer> itemEnchants =
             getValidDisenchants(inv.getItemInSlot(ITEM_SLOT));
 
-        List<String> lore = new ArrayList<>();
+        List<Component> lore = new ArrayList<>();
 
         if (inv.getItemInSlot(ITEM_SLOT) == null) {
-            lore.add(Utils.color("&cInsert an item"));
-            lore.add("");
-            lore.add(Utils.color("&e> Click to rescan <"));
+            lore.add(Component.text("Insert an item", NamedTextColor.RED));
+            lore.add(Component.empty());
+            lore.add(Component.text("> Click to rescan <", NamedTextColor.YELLOW));
             setSelectionItem(inv, lore);
             setSelectedIndex(b, -2);
             return;
         }
 
         if (itemEnchants.isEmpty()) {
-            lore.add(Utils.color("&cThis item has no eligible enchantments!"));
-            lore.add("");
-            lore.add(Utils.color("&e> Click to rescan <"));
+            lore.add(Component.text("This item has no eligible enchantments!", NamedTextColor.RED));
+            lore.add(Component.empty());
+            lore.add(Component.text("> Click to rescan <", NamedTextColor.YELLOW));
             setSelectionItem(inv, lore);
             setSelectedIndex(b, -2);
             return;
