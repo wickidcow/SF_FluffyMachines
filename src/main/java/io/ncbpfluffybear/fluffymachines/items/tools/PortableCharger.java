@@ -4,15 +4,16 @@ package io.ncbpfluffybear.fluffymachines.items.tools;
 import io.github.thebusybiscuit.slimefun4.core.attributes.Rechargeable;
 import io.github.thebusybiscuit.slimefun4.core.handlers.ItemUseHandler;
 import io.github.thebusybiscuit.slimefun4.implementation.items.SimpleSlimefunItem;
-import io.github.thebusybiscuit.slimefun4.libraries.dough.common.ChatColors;
 import io.ncbpfluffybear.fluffymachines.FluffyMachines;
 import io.ncbpfluffybear.fluffymachines.utils.Utils;
 import io.github.thebusybiscuit.slimefun4.api.recipes.RecipeType;
 import io.github.thebusybiscuit.slimefun4.api.items.ItemGroup;
 import io.github.thebusybiscuit.slimefun4.api.items.SlimefunItem;
 import io.github.thebusybiscuit.slimefun4.api.items.SlimefunItemStack;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.GameMode;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
@@ -37,6 +38,8 @@ import java.util.List;
  * @author NCBPFluffyBear
  */
 public class PortableCharger extends SimpleSlimefunItem<ItemUseHandler> implements Listener, Rechargeable {
+
+    private static final LegacyComponentSerializer LEGACY_COMPONENTS = LegacyComponentSerializer.legacyAmpersand();
 
     private final int[] BORDER = {5, 6, 7, 14, 16, 23, 24, 25};
     private final int POWER_SLOT = 11;
@@ -68,7 +71,7 @@ public class PortableCharger extends SimpleSlimefunItem<ItemUseHandler> implemen
             final Rechargeable charger = (Rechargeable) SlimefunItem.getByItem(chargerItem);
 
             // Create GUI Items
-            Inventory inventory = Bukkit.createInventory(null, INV_SIZE, ChatColor.GOLD + "Portable Charger");
+            Inventory inventory = Bukkit.createInventory(null, INV_SIZE, Component.text("Portable Charger", NamedTextColor.GOLD));
 
             ItemStack backgroundItem = Utils.buildNonInteractable(Material.GRAY_STAINED_GLASS_PANE, null);
             ItemStack borderItem = Utils.buildNonInteractable(Material.YELLOW_STAINED_GLASS_PANE, null);
@@ -165,19 +168,15 @@ public class PortableCharger extends SimpleSlimefunItem<ItemUseHandler> implemen
     public void updateSlot(Inventory inventory, int slot, String name, String... lore) {
         ItemStack item = inventory.getItem(slot);
         ItemMeta slotMeta = item.getItemMeta();
-        if (name != null) {
-            slotMeta.setDisplayName(ChatColors.color(name));
-        } else {
-            slotMeta.setDisplayName(" ");
-        }
+        slotMeta.displayName(name != null ? LEGACY_COMPONENTS.deserialize(name) : Component.text(" "));
 
         if (lore.length > 0) {
-            List<String> lines = new ArrayList<>();
+            List<Component> lines = new ArrayList<>();
 
             for (String line : lore) {
-                lines.add(ChatColor.translateAlternateColorCodes('&', line));
+                lines.add(LEGACY_COMPONENTS.deserialize(line));
             }
-            slotMeta.setLore(lines);
+            slotMeta.lore(lines);
         }
         item.setItemMeta(slotMeta);
         inventory.setItem(slot, item);

@@ -4,12 +4,13 @@ import com.xzavier0722.mc.plugin.slimefun4.storage.util.StorageCacheUtils;
 import io.github.thebusybiscuit.slimefun4.core.handlers.BlockBreakHandler;
 import io.github.thebusybiscuit.slimefun4.implementation.Slimefun;
 import io.github.thebusybiscuit.slimefun4.implementation.handlers.SimpleBlockBreakHandler;
-import io.github.thebusybiscuit.slimefun4.libraries.dough.common.ChatColors;
 import io.github.thebusybiscuit.slimefun4.libraries.dough.protection.Interaction;
 import io.github.thebusybiscuit.slimefun4.utils.ChestMenuUtils;
 import io.ncbpfluffybear.fluffymachines.FluffyMachines;
 import me.mrCookieSlime.CSCoreLibPlugin.general.Inventory.ChestMenu;
 import me.mrCookieSlime.Slimefun.api.inventory.BlockMenu;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
@@ -32,6 +33,7 @@ import java.util.TreeMap;
 
 public final class Utils {
 
+    private static final LegacyComponentSerializer LEGACY_COMPONENTS = LegacyComponentSerializer.legacyAmpersand();
     private static final NamespacedKey fluffykey = new NamespacedKey(FluffyMachines.getInstance(), "fluffykey");
     private static final NamespacedKey nonClickable = new NamespacedKey(FluffyMachines.getInstance(), "nonclickable");
 
@@ -78,19 +80,15 @@ public final class Utils {
     public static ItemStack buildNonInteractable(Material material, @Nullable String name, @Nullable String... lore) {
         ItemStack nonClickableItem = new ItemStack(material);
         ItemMeta NCMeta = nonClickableItem.getItemMeta();
-        if (name != null) {
-            NCMeta.setDisplayName(ChatColors.color(name));
-        } else {
-            NCMeta.setDisplayName(" ");
-        }
+        NCMeta.displayName(name != null ? LEGACY_COMPONENTS.deserialize(name) : Component.text(" "));
 
         if (lore.length > 0) {
-            List<String> lines = new ArrayList<>();
+            List<Component> lines = new ArrayList<>();
 
             for (String line : lore) {
-                lines.add(ChatColor.translateAlternateColorCodes('&', line));
+                lines.add(LEGACY_COMPONENTS.deserialize(line));
             }
-            NCMeta.setLore(lines);
+            NCMeta.lore(lines);
         }
 
         NCMeta.getPersistentDataContainer().set(nonClickable, PersistentDataType.BYTE, (byte) 1);

@@ -24,7 +24,8 @@ import me.mrCookieSlime.Slimefun.api.inventory.BlockMenu;
 import me.mrCookieSlime.Slimefun.api.inventory.BlockMenuPreset;
 import me.mrCookieSlime.Slimefun.api.inventory.DirtyChestMenu;
 import me.mrCookieSlime.Slimefun.api.item_transport.ItemTransportFlow;
-import org.bukkit.ChatColor;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
@@ -368,32 +369,27 @@ public class AdvancedAutoDisenchanter extends SlimefunItem implements EnergyNetC
         BlockMenu menu,
         int selectionIndex
     ) {
-        List<String> lore = new ArrayList<>();
+        List<Component> lore = new ArrayList<>();
 
-        lore.add(Utils.color("&e> Click to select the enchantment to extract <"));
-        lore.add("");
+        lore.add(Component.text("> Click to select the enchantment to extract <", NamedTextColor.YELLOW));
+        lore.add(Component.empty());
 
-        if (selectionIndex == -1) {
-            lore.add(Utils.color("&a- None"));
-        } else {
-            lore.add(Utils.color("&c- None"));
-        }
+        lore.add(Component.text("- None", selectionIndex == -1 ? NamedTextColor.GREEN : NamedTextColor.RED));
 
         Enchantment[] disenchantKeys =
             disenchants.keySet().toArray(new Enchantment[0]);
 
         for (int i = 0; i < disenchantKeys.length; i++) {
-            ChatColor textColor =
-                i == selectionIndex ? ChatColor.GREEN : ChatColor.RED;
+            NamedTextColor textColor =
+                i == selectionIndex ? NamedTextColor.GREEN : NamedTextColor.RED;
 
-            String ench =
-                textColor
-                    + "- "
+            lore.add(Component.text(
+                "- "
                     + getEnchantmentName(disenchantKeys[i])
                     + " "
-                    + Utils.toRoman(disenchants.get(disenchantKeys[i]));
-
-            lore.add(ench);
+                    + Utils.toRoman(disenchants.get(disenchantKeys[i])),
+                textColor
+            ));
         }
 
         setSelectionItem(menu, lore);
@@ -465,12 +461,12 @@ public class AdvancedAutoDisenchanter extends SlimefunItem implements EnergyNetC
         return filteredDisenchants;
     }
 
-    private void setSelectionItem(BlockMenu menu, List<String> lore) {
+    private void setSelectionItem(BlockMenu menu, List<Component> lore) {
         ItemStack selectionItem = new ItemStack(Material.ENCHANTED_BOOK);
         ItemMeta itemMeta = selectionItem.getItemMeta();
 
-        itemMeta.setDisplayName(Utils.color("&5Enchantment Selector"));
-        itemMeta.setLore(lore);
+        itemMeta.displayName(Component.text("Enchantment Selector", NamedTextColor.DARK_PURPLE));
+        itemMeta.lore(lore);
         selectionItem.setItemMeta(itemMeta);
 
         menu.replaceExistingItem(SELECTION_SLOT, selectionItem);
