@@ -200,13 +200,13 @@ public class AlternateElevatorPlate extends SimpleSlimefunItem<BlockUseHandler> 
         if (destination.getY() == b.getY()) {
             menu.addItem(slot, new CustomItemStack(Material.LIME_STAINED_GLASS_PANE,
                 ChatColors.color(Slimefun.getLocalization().getMessage(p, "machines.ELEVATOR.current-floor")),
-                "", ChatColor.WHITE + floor, ""));
+                "", Utils.color("&f") + floor, ""));
             menu.addMenuClickHandler(slot, ChestMenuUtils.getEmptyClickHandler());
 
         } else {
             menu.addItem(slot, new CustomItemStack(Material.GRAY_STAINED_GLASS_PANE,
                 ChatColors.color(Slimefun.getLocalization().getMessage(p,
-                    "machines.ELEVATOR.click-to-teleport")), "", ChatColor.WHITE + floor, ""));
+                    "machines.ELEVATOR.click-to-teleport")), "", Utils.color("&f") + floor, ""));
             menu.addMenuClickHandler(slot, (player, clickSlot, item, action) -> {
                 teleport(p, floor, destination);
                 return false;
