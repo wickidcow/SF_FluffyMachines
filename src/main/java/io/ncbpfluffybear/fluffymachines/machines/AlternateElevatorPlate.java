@@ -15,7 +15,6 @@ import io.github.thebusybiscuit.slimefun4.api.recipes.RecipeType;
 import io.github.thebusybiscuit.slimefun4.api.items.ItemGroup;
 import io.github.thebusybiscuit.slimefun4.api.items.SlimefunItemStack;
 import io.github.thebusybiscuit.slimefun4.libraries.dough.items.CustomItemStack;
-import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
@@ -162,7 +161,7 @@ public class AlternateElevatorPlate extends SimpleSlimefunItem<BlockUseHandler> 
 
             PaperLib.teleportAsync(player, destination).thenAccept(teleported -> {
                 if (teleported) {
-                    player.sendTitle(ChatColor.WHITE + ChatColors.color(floorName), null, 20, 60, 20);
+                    player.sendTitle(Utils.color("&f") + ChatColors.color(floorName), null, 20, 60, 20);
                 }
             });
         });
@@ -181,7 +180,7 @@ public class AlternateElevatorPlate extends SimpleSlimefunItem<BlockUseHandler> 
             pl.sendMessage("");
 
             ChatUtils.awaitInput(pl, message -> {
-                StorageCacheUtils.setData(b.getLocation(), DATA_KEY, message.replace(ChatColor.COLOR_CHAR, '&'));
+                StorageCacheUtils.setData(b.getLocation(), DATA_KEY, message.replace('\u00A7', '&'));
 
                 pl.sendMessage("");
                 Slimefun.getLocalization().sendMessage(p, "machines.ELEVATOR.named", msg -> msg.replace("%floor" +

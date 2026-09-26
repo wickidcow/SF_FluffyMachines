@@ -12,7 +12,6 @@ import me.mrCookieSlime.Slimefun.api.inventory.BlockMenu;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.block.Block;
@@ -34,6 +33,9 @@ import java.util.TreeMap;
 public final class Utils {
 
     private static final LegacyComponentSerializer LEGACY_COMPONENTS = LegacyComponentSerializer.legacyAmpersand();
+    private static final LegacyComponentSerializer LEGACY_SECTION = LegacyComponentSerializer.legacySection();
+    private static final char LEGACY_COLOR_CHAR = '\u00A7';
+    private static final String LEGACY_COLOR_CODES = "0123456789AaBbCcDdEeFfKkLlMmNnOoRrXx";
     private static final NamespacedKey fluffykey = new NamespacedKey(FluffyMachines.getInstance(), "fluffykey");
     private static final NamespacedKey nonClickable = new NamespacedKey(FluffyMachines.getInstance(), "nonclickable");
 
@@ -65,7 +67,18 @@ public final class Utils {
             return null;
         }
 
-        return ChatColor.translateAlternateColorCodes('&', str);
+        char[] chars = str.toCharArray();
+        for (int i = 0; i < chars.length - 1; i++) {
+            if (chars[i] == '&' && LEGACY_COLOR_CODES.indexOf(chars[i + 1]) >= 0) {
+                chars[i] = LEGACY_COLOR_CHAR;
+                chars[i + 1] = Character.toLowerCase(chars[i + 1]);
+            }
+        }
+        return new String(chars);
+    }
+
+    public static String legacyString(Component component) {
+        return LEGACY_SECTION.serialize(component);
     }
 
     public static void send(CommandSender p, String message) {

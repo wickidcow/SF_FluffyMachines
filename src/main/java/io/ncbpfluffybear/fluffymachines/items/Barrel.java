@@ -23,7 +23,6 @@ import me.mrCookieSlime.Slimefun.api.inventory.BlockMenu;
 import me.mrCookieSlime.Slimefun.api.inventory.BlockMenuPreset;
 import me.mrCookieSlime.Slimefun.api.inventory.DirtyChestMenu;
 import me.mrCookieSlime.Slimefun.api.item_transport.ItemTransportFlow;
-import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Entity;
@@ -595,8 +594,8 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
         // Using same format that is used on lore power
         String formattedString = STORAGE_INDICATOR_FORMAT.format(num);
         if (formattedString.indexOf('.') != -1) {
-            return formattedString.substring(0, formattedString.indexOf('.')) + ChatColor.DARK_GRAY
-                + formattedString.substring(formattedString.indexOf('.')) + ChatColor.GRAY;
+            return formattedString.substring(0, formattedString.indexOf('.')) + Utils.color("&8")
+                + formattedString.substring(formattedString.indexOf('.')) + Utils.color("&7");
         } else {
             return formattedString;
         }
