@@ -4,16 +4,21 @@ import io.github.thebusybiscuit.slimefun4.api.player.PlayerBackpack;
 import io.ncbpfluffybear.fluffymachines.utils.FluffyItems;
 import io.ncbpfluffybear.fluffymachines.utils.Utils;
 import java.util.ArrayList;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import java.util.List;
 import java.util.UUID;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
 /** Converts a Doctor-validated legacy Dolly lore binding into the modern PDC binding. */
 final class LegacyDollySchemaMigrator {
+
+    private static final LegacyComponentSerializer LEGACY_AMPERSAND = LegacyComponentSerializer.legacyAmpersand();
+    private static final PlainTextComponentSerializer PLAIN = PlainTextComponentSerializer.plainText();
 
     private LegacyDollySchemaMigrator() {}
 
@@ -28,12 +33,13 @@ final class LegacyDollySchemaMigrator {
         meta = dolly.getItemMeta();
         if (meta == null) return false;
 
-        List<String> lore = meta.hasLore() && meta.getLore() != null
-                ? new ArrayList<>(meta.getLore())
+        List<Component> currentLore = meta.hasLore() ? meta.lore() : null;
+        List<Component> lore = currentLore != null
+                ? new ArrayList<>(currentLore)
                 : new ArrayList<>();
         OfflinePlayer owner = Bukkit.getOfflinePlayer(claim.owner());
         String ownerName = owner.getName() == null ? "Unknown" : owner.getName();
-        String ownerLine = Utils.color(FluffyItems.DOLLY_OWNER_LORE + ownerName);
+        Component ownerLine = LEGACY_AMPERSAND.deserialize(FluffyItems.DOLLY_OWNER_LORE + ownerName);
 
         int ownerIndex = findOwnerLine(lore);
         if (ownerIndex >= 0) {
@@ -41,15 +47,15 @@ final class LegacyDollySchemaMigrator {
         } else {
             lore.add(ownerLine);
         }
-        meta.setLore(lore);
+        meta.lore(lore);
         dolly.setItemMeta(meta);
         return true;
     }
 
-    private static int findOwnerLine(List<String> lore) {
-        String ownerPrefix = ChatColor.stripColor(Utils.color(FluffyItems.DOLLY_OWNER_LORE));
+    private static int findOwnerLine(List<Component> lore) {
+        String ownerPrefix = PLAIN.serialize(LEGACY_AMPERSAND.deserialize(FluffyItems.DOLLY_OWNER_LORE));
         for (int i = 0; i < lore.size(); i++) {
-            String plain = ChatColor.stripColor(lore.get(i));
+            String plain = PLAIN.serialize(lore.get(i));
             if (plain != null && ownerPrefix != null && plain.startsWith(ownerPrefix)) return i;
         }
         for (int i = lore.size() - 1; i >= 3; i--) {
