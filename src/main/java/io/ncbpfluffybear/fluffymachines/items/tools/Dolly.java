@@ -13,11 +13,11 @@ import io.github.thebusybiscuit.slimefun4.libraries.dough.protection.Interaction
 import io.ncbpfluffybear.fluffymachines.FluffyMachines;
 import io.ncbpfluffybear.fluffymachines.utils.FluffyItems;
 import io.ncbpfluffybear.fluffymachines.utils.Utils;
-import com.xzavier0722.mc.plugin.slimefun4.storage.callback.IAsyncReadCallback;
-import com.xzavier0722.mc.plugin.slimefun4.storage.controller.ProfileDataController;
 import com.xzavier0722.mc.plugin.slimefun4.storage.util.StorageCacheUtils;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.block.Block;
@@ -38,8 +38,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Optional;
-import java.util.OptionalInt;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -53,6 +51,9 @@ import java.util.function.Consumer;
  * may complete asynchronously on modern servers.</p>
  */
 public class Dolly extends SimpleSlimefunItem<ItemUseHandler> {
+
+    private static final LegacyComponentSerializer LEGACY_COMPONENTS = LegacyComponentSerializer.legacyAmpersand();
+    private static final PlainTextComponentSerializer PLAIN = PlainTextComponentSerializer.plainText();
 
     private static final ItemStack LOCK_ITEM = Utils.buildNonInteractable(
         Material.DIRT, "&4&lError", "&cThis Dolly is empty."
@@ -114,9 +115,7 @@ public class Dolly extends SimpleSlimefunItem<ItemUseHandler> {
 
     private void startPickup(ItemStack dolly, Block chest, Player player) {
         ItemMeta meta = dolly.getItemMeta();
-        boolean isBound = meta != null
-            && (PlayerBackpack.getBackpackUUID(meta).isPresent()
-                || meta.hasLore() && PlayerBackpack.getBackpackID(meta).isPresent());
+        boolean isBound = meta != null && PlayerBackpack.hasBackpackIdentity(meta);
 
         try {
             if (!isBound) {
@@ -130,10 +129,8 @@ public class Dolly extends SimpleSlimefunItem<ItemUseHandler> {
 
                     runDollyOperation(player, () -> {
                         ItemMeta currentMeta = dolly.getItemMeta();
-                        boolean becameBound = currentMeta != null
-                            && (PlayerBackpack.getBackpackUUID(currentMeta).isPresent()
-                                || currentMeta.hasLore()
-                                    && PlayerBackpack.getBackpackID(currentMeta).isPresent());
+                        boolean becameBound =
+                            currentMeta != null && PlayerBackpack.hasBackpackIdentity(currentMeta);
 
                         if (becameBound) {
                             Utils.send(player, "&eThe Dolly storage was prepared. Use it again.");
@@ -200,11 +197,12 @@ public class Dolly extends SimpleSlimefunItem<ItemUseHandler> {
             throw new IllegalStateException("Dolly item metadata is missing");
         }
 
-        List<String> lore = meta.hasLore() && meta.getLore() != null
-            ? new ArrayList<>(meta.getLore())
+        List<Component> existingLore = meta.hasLore() ? meta.lore() : null;
+        List<Component> lore = existingLore != null
+            ? new ArrayList<>(existingLore)
             : new ArrayList<>();
         String ownerName = backpack.getOwner().getName();
-        String ownerLine = Utils.color(
+        Component ownerLine = LEGACY_COMPONENTS.deserialize(
             FluffyItems.DOLLY_OWNER_LORE + (ownerName == null ? "Unknown" : ownerName)
         );
 
@@ -215,10 +213,10 @@ public class Dolly extends SimpleSlimefunItem<ItemUseHandler> {
             lore.add(ownerLine);
         }
 
-        meta.setLore(lore);
+        meta.lore(lore);
         String backpackName = backpack.getName();
         if (backpackName != null && !backpackName.isBlank()) {
-            meta.setDisplayName(Utils.color(backpackName));
+            meta.displayName(LEGACY_COMPONENTS.deserialize(backpackName));
         }
         dolly.setItemMeta(meta);
     }
@@ -228,18 +226,18 @@ public class Dolly extends SimpleSlimefunItem<ItemUseHandler> {
      * bindings may contain a translated dependency string, so the final
      * non-ID lore line is migrated when no English prefix is present.
      */
-    private int findOwnerLoreIndex(List<String> lore) {
-        String ownerPrefix = ChatColor.stripColor(Utils.color(FluffyItems.DOLLY_OWNER_LORE));
+    private int findOwnerLoreIndex(List<Component> lore) {
+        String ownerPrefix = PLAIN.serialize(LEGACY_COMPONENTS.deserialize(FluffyItems.DOLLY_OWNER_LORE));
         for (int i = 0; i < lore.size(); i++) {
-            String plain = ChatColor.stripColor(lore.get(i));
-            if (plain != null && ownerPrefix != null && plain.startsWith(ownerPrefix)) {
+            String plain = PLAIN.serialize(lore.get(i));
+            if (plain.startsWith(ownerPrefix)) {
                 return i;
             }
         }
 
         for (int i = lore.size() - 1; i >= 3; i--) {
-            String plain = ChatColor.stripColor(lore.get(i));
-            if (plain != null && !plain.startsWith("ID: ")) {
+            String plain = PLAIN.serialize(lore.get(i));
+            if (!plain.startsWith("ID: ")) {
                 return i;
             }
         }
@@ -247,13 +245,11 @@ public class Dolly extends SimpleSlimefunItem<ItemUseHandler> {
     }
 
     /**
-     * Loads a bound Dolly through the callback API exposed by the Gugu 2025.1
-     * profile data controller.
+     * Loads a bound Dolly through Slimefun Legacy's future-based backpack resolver.
      *
-     * <p>The callback reports both successful reads and missing records. Every
-     * callback is funneled through {@link #runDollyOperation(Player, Runnable)}
-     * so Bukkit inventory work returns to the primary thread and the operation
-     * lock is released without an arbitrary timeout.</p>
+     * <p>The resolver supports both modern PDC bindings and legacy lore bindings.
+     * Completion is always funneled through {@link #runDollyOperation(Player, Runnable)}
+     * before Bukkit inventory or item metadata is touched.</p>
      */
     private void loadBackpackAsync(
         ItemStack dolly,
@@ -261,15 +257,13 @@ public class Dolly extends SimpleSlimefunItem<ItemUseHandler> {
         Consumer<PlayerBackpack> onFound,
         Runnable onNotFound
     ) {
-        ItemMeta meta = dolly.getItemMeta();
-        if (meta == null) {
-            runDollyOperation(player, onNotFound);
-            return;
-        }
+        try {
+            PlayerBackpack.getAsync(dolly).whenComplete((backpack, failure) -> {
+                if (failure != null) {
+                    runDollyOperation(player, () -> reportStorageFailure(player, failure));
+                    return;
+                }
 
-        IAsyncReadCallback<PlayerBackpack> callback = new IAsyncReadCallback<>() {
-            @Override
-            public void onResult(PlayerBackpack backpack) {
                 runDollyOperation(player, () -> {
                     if (backpack == null) {
                         onNotFound.run();
@@ -280,76 +274,10 @@ public class Dolly extends SimpleSlimefunItem<ItemUseHandler> {
                     bindDollyItem(dolly, backpack);
                     onFound.accept(backpack);
                 });
-            }
-
-            @Override
-            public void onResultNotFound() {
-                runDollyOperation(player, onNotFound);
-            }
-        };
-
-        ProfileDataController controller = Slimefun.getDatabaseManager().getProfileDataController();
-        Optional<String> backpackUuid = PlayerBackpack.getBackpackUUID(meta);
-        if (backpackUuid.isPresent()) {
-            try {
-                // Reject malformed item data before dispatching a database read.
-                UUID.fromString(backpackUuid.get());
-                controller.getBackpackAsync(backpackUuid.get(), callback);
-            } catch (IllegalArgumentException ex) {
-                runDollyOperation(player, () -> reportStorageFailure(player, ex));
-            }
-            return;
+            });
+        } catch (RuntimeException exception) {
+            runDollyOperation(player, () -> reportStorageFailure(player, exception));
         }
-
-        OptionalInt backpackId = meta.hasLore()
-            ? PlayerBackpack.getBackpackID(meta)
-            : OptionalInt.empty();
-        Optional<UUID> ownerUuid = getLegacyOwnerUuid(meta);
-        if (backpackId.isPresent() && ownerUuid.isPresent()) {
-            controller.getBackpackAsync(
-                Bukkit.getOfflinePlayer(ownerUuid.get()),
-                backpackId.getAsInt(),
-                callback
-            );
-            return;
-        }
-
-        runDollyOperation(player, onNotFound);
-    }
-
-    @Nonnull
-    private Optional<UUID> getLegacyOwnerUuid(ItemMeta meta) {
-        Optional<String> ownerPdc = PlayerBackpack.getOwnerUUID(meta);
-        if (ownerPdc.isPresent()) {
-            try {
-                return Optional.of(UUID.fromString(ownerPdc.get()));
-            } catch (IllegalArgumentException ignored) {
-                // Fall back to the legacy lore binding below.
-            }
-        }
-
-        if (!meta.hasLore() || meta.getLore() == null) {
-            return Optional.empty();
-        }
-
-        for (String line : meta.getLore()) {
-            String plain = ChatColor.stripColor(line);
-            if (plain == null || !plain.startsWith("ID: ")) {
-                continue;
-            }
-
-            int separator = plain.lastIndexOf('#');
-            if (separator <= 4) {
-                continue;
-            }
-
-            try {
-                return Optional.of(UUID.fromString(plain.substring(4, separator)));
-            } catch (IllegalArgumentException ignored) {
-                // Ignore malformed legacy lore and continue searching.
-            }
-        }
-        return Optional.empty();
     }
 
     private boolean beginOperation(Player player) {

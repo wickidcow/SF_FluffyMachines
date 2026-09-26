@@ -30,6 +30,7 @@ bridge = read("src/main/java/io/ncbpfluffybear/fluffymachines/diagnostics/Legacy
 probe = read("src/main/java/io/ncbpfluffybear/fluffymachines/diagnostics/LegacyDollySchemaProbe.java")
 validator = read("src/main/java/io/ncbpfluffybear/fluffymachines/diagnostics/LegacyDollySchemaValidator.java")
 migrator = read("src/main/java/io/ncbpfluffybear/fluffymachines/diagnostics/LegacyDollySchemaMigrator.java")
+dolly = read("src/main/java/io/ncbpfluffybear/fluffymachines/items/tools/Dolly.java")
 doctor = read("src/main/java/io/ncbpfluffybear/fluffymachines/diagnostics/FluffyDoctor.java")
 plugin = read("src/main/java/io/ncbpfluffybear/fluffymachines/FluffyMachines.java")
 bridge_compact = " ".join(bridge.split())
@@ -85,6 +86,15 @@ reject('getBackpackAsync' in migrator or 'saveBackpack' in migrator or 'saveBack
        "Dolly schema migrator must not read or rewrite backing backpack storage")
 reject('setItemData(' in migrator,
        "same-ID Dolly migration must never rewrite the Slimefun item ID")
+
+require('PlayerBackpack.hasBackpackIdentity(meta)' in dolly,
+        "Dolly runtime must recognize both modern and legacy backpack bindings")
+require('PlayerBackpack.getAsync(dolly)' in dolly,
+        "Dolly runtime must use Slimefun Legacy's future-based backpack resolver")
+require('bindDollyItem(dolly, backpack)' in dolly,
+        "Dolly runtime must migrate successfully resolved legacy bindings to modern PDC")
+reject('IAsyncReadCallback' in dolly or 'controller.getBackpackAsync(' in dolly,
+       "Dolly runtime must not reintroduce deprecated callback-style backpack reads")
 
 require('controller.getAllLoadedChunkData()' in doctor,
         "Fluffy barrel Doctor must stay limited to already-loaded Slimefun block data")
