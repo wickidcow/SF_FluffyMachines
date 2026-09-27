@@ -7,6 +7,7 @@ import io.github.thebusybiscuit.slimefun4.utils.SlimefunUtils;
 import io.ncbpfluffybear.fluffymachines.multiblocks.components.SuperheatedFurnace;
 import io.ncbpfluffybear.fluffymachines.utils.FluffyItems;
 import io.ncbpfluffybear.fluffymachines.utils.Utils;
+import net.kyori.adventure.text.Component;
 import io.github.thebusybiscuit.slimefun4.api.items.ItemGroup;
 
 import io.github.thebusybiscuit.slimefun4.api.items.SlimefunItemStack;
