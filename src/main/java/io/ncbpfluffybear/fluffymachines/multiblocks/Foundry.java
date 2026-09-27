@@ -57,7 +57,7 @@ public class Foundry extends MultiBlockMachine {
                 lavaStand.setCanPickupItems(false);
                 lavaStand.setGravity(false);
                 lavaStand.setVisible(false);
-                lavaStand.setCustomName("hehexdfluff");
+                lavaStand.customName(Component.text("hehexdfluff"));
                 lavaStand.setCustomNameVisible(false);
                 Furnace furnace = (Furnace) b.getState();
                 furnace.setBurnTime((short) 1000000);

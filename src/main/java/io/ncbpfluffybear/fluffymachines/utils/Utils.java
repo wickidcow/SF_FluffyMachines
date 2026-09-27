@@ -81,6 +81,25 @@ public final class Utils {
         return LEGACY_SECTION.serialize(component);
     }
 
+    public static Component legacyComponent(String legacy) {
+        return LEGACY_SECTION.deserialize(legacy);
+    }
+
+    public static boolean hasLegacyCustomModelData(@Nullable ItemMeta meta, float expected) {
+        if (meta == null || !meta.hasCustomModelDataComponent()) {
+            return false;
+        }
+
+        List<Float> values = meta.getCustomModelDataComponent().getFloats();
+        return values.size() == 1 && Float.compare(values.get(0), expected) == 0;
+    }
+
+    public static void setLegacyCustomModelData(@Nonnull ItemMeta meta, float value) {
+        var component = meta.getCustomModelDataComponent();
+        component.setFloats(List.of(value));
+        meta.setCustomModelDataComponent(component);
+    }
+
     public static void send(CommandSender p, String message) {
         p.sendMessage(color("&7[&6FluffyMachines&7] &r" + message));
     }

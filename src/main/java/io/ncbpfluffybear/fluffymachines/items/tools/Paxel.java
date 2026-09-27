@@ -60,8 +60,8 @@ public class Paxel extends SlimefunItem implements Listener, NotPlaceable {
     private static SlimefunItemStack ensureGuideTexture(SlimefunItemStack item) {
         ItemMeta meta = item.getItemMeta();
 
-        if (!meta.hasCustomModelData()) {
-            meta.setCustomModelData(DEFAULT_PAXEL_MODEL_DATA);
+        if (!meta.hasCustomModelDataComponent()) {
+            Utils.setLegacyCustomModelData(meta, DEFAULT_PAXEL_MODEL_DATA);
             item.setItemMeta(meta);
         }
 

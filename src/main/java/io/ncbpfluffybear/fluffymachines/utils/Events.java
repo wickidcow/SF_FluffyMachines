@@ -11,6 +11,7 @@ import io.ncbpfluffybear.fluffymachines.items.FireproofRune;
 import io.ncbpfluffybear.fluffymachines.items.HelicopterHat;
 import io.ncbpfluffybear.fluffymachines.items.tools.WateringCan;
 import io.ncbpfluffybear.fluffymachines.machines.AlternateElevatorPlate;
+import net.kyori.adventure.text.Component;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.Particle;
@@ -91,17 +92,18 @@ public class Events implements Listener {
     @EventHandler(ignoreCancelled = true)
     public void onNonClickableClick(InventoryClickEvent e) {
         ItemStack item = e.getCurrentItem();
-        if (item != null && item.getType() != Material.AIR && (item.getItemMeta().hasCustomModelData()
-            && item.getItemMeta().getCustomModelData() == 6969) || Utils.checkNonInteractable(item)) {
+        if (item != null && item.getType() != Material.AIR
+            && (Utils.hasLegacyCustomModelData(item.getItemMeta(), 6969F)
+                || Utils.checkNonInteractable(item))) {
             e.setCancelled(true);
         }
     }
 
     @EventHandler(ignoreCancelled = true)
     public void onHeadRemove(PlayerArmorStandManipulateEvent e) {
-        if (e.getRightClicked().getCustomName() != null
-            && e.getRightClicked().getCustomName().equals("hehexdfluff"))
+        if (Component.text("hehexdfluff").equals(e.getRightClicked().customName())) {
             e.setCancelled(true);
+        }
     }
 
     @EventHandler(ignoreCancelled = true)

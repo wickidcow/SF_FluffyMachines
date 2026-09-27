@@ -414,7 +414,7 @@ public class Dolly extends SimpleSlimefunItem<ItemUseHandler> {
                 chestMaterial,
                 secondChestMaterial,
                 chestState.getLock(),
-                chestState.getCustomName()
+                chestState.customName() == null ? null : Utils.legacyString(chestState.customName())
             );
         } catch (RuntimeException ex) {
             restoreBackpack(backpack, previousBackpackContents);
@@ -732,7 +732,7 @@ public class Dolly extends SimpleSlimefunItem<ItemUseHandler> {
             state.setLock(lock);
         }
         if (customName != null) {
-            state.setCustomName(customName);
+            state.customName(Utils.legacyComponent(customName));
         }
         state.update(true, false);
     }
@@ -765,6 +765,6 @@ public class Dolly extends SimpleSlimefunItem<ItemUseHandler> {
         }
         ItemMeta meta = item.getItemMeta();
         return Utils.checkNonInteractable(item)
-            || meta != null && meta.hasCustomModelData() && meta.getCustomModelData() == 6969;
+            || Utils.hasLegacyCustomModelData(meta, 6969F);
     }
 }
