@@ -5,7 +5,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>io.ncbpfluffybear</groupId>
     <artifactId>FluffyMachines</artifactId>
-    <version>26.2.12</version>
+    <version>26.2.13</version>
 
     <properties>
         <maven.compiler.release>21</maven.compiler.release>
@@ -31,6 +31,7 @@
             <resource><directory>${basedir}/src/main/resources</directory><filtering>true</filtering><includes><include>*</include></includes></resource>
         </resources>
         <plugins>
+            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.5.3</version></plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
@@ -59,6 +60,7 @@
     </build>
 
     <dependencies>
+        <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>5.13.1</version><scope>test</scope></dependency>
         <dependency><groupId>io.papermc.paper</groupId><artifactId>paper-api</artifactId><version>${paper.version}</version><scope>provided</scope></dependency>
         <dependency><groupId>${slimefun.groupId}</groupId><artifactId>${slimefun.artifactId}</artifactId><version>${slimefun.version}</version><scope>provided</scope></dependency>
         <dependency><groupId>com.google.code.findbugs</groupId><artifactId>jsr305</artifactId><version>3.0.2</version><scope>provided</scope></dependency>

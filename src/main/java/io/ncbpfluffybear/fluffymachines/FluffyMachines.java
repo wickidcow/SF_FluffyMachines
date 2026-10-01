@@ -1,4 +1,7 @@
 package io.ncbpfluffybear.fluffymachines;
+import io.ncbpfluffybear.fluffymachines.listeners.BarrelItemFrameListener;
+import io.ncbpfluffybear.fluffymachines.utils.BarrelHoverNameManager;
+import io.ncbpfluffybear.fluffymachines.utils.BarrelDisplayManager;
 
 import com.xzavier0722.mc.plugin.slimefun4.storage.callback.IAsyncReadCallback;
 import com.xzavier0722.mc.plugin.slimefun4.storage.controller.SlimefunBlockData;
@@ -100,6 +103,7 @@ public class FluffyMachines extends JavaPlugin implements SlimefunAddon {
         // Registering Items
         FluffyItemSetup.setup(this);
         FluffyItemSetup.setupBarrels(this);
+        BarrelHoverNameManager.initialize();
 
         // mcMMO remains an optional runtime integration. The listener is registered
         // dynamically so building FluffyMachines does not require the mcMMO API JAR.
@@ -115,6 +119,7 @@ public class FluffyMachines extends JavaPlugin implements SlimefunAddon {
 
         // Register Events Class
         getServer().getPluginManager().registerEvents(new Events(), this);
+        getServer().getPluginManager().registerEvents(new BarrelItemFrameListener(), this);
         getServer().getPluginManager().registerEvents(new KeyedCrafterListener(), this);
 
         // Slimefun Legacy exposes Addon Doctor as an optional service. Register reflectively so
@@ -126,6 +131,8 @@ public class FluffyMachines extends JavaPlugin implements SlimefunAddon {
 
     @Override
     public void onDisable() {
+        BarrelHoverNameManager.shutdown();
+        BarrelDisplayManager.shutdown();
         LegacyDoctorBridge.unregister(this);
     }
 

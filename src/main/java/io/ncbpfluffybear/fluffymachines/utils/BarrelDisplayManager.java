@@ -20,6 +20,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
+import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.util.RayTraceResult;
 import org.bukkit.util.Transformation;
 import org.bukkit.util.Vector;
@@ -42,6 +43,8 @@ public final class BarrelDisplayManager {
     private static final Map<String, DisplayState> STATES = new ConcurrentHashMap<>();
     private static final float DISPLAY_SCALE = 0.50F;
     private static boolean initialized;
+    private static BukkitTask hoverTask;
+    private static BukkitTask pruneTask;
     private static NamespacedKey displayKey;
 
     private BarrelDisplayManager() {
@@ -60,8 +63,8 @@ public final class BarrelDisplayManager {
         initialized = true;
         displayKey = new NamespacedKey(plugin, "barrel_item_display");
 
-        Bukkit.getScheduler().runTaskTimer(plugin, BarrelDisplayManager::showHoverText, 10L, 5L);
-        Bukkit.getScheduler().runTaskTimer(plugin, BarrelDisplayManager::pruneStateCache, 600L, 600L);
+        hoverTask = Bukkit.getScheduler().runTaskTimer(plugin, BarrelDisplayManager::showHoverText, 10L, 5L);
+        pruneTask = Bukkit.getScheduler().runTaskTimer(plugin, BarrelDisplayManager::pruneStateCache, 600L, 600L);
     }
 
     /**
@@ -76,27 +79,15 @@ public final class BarrelDisplayManager {
         }
 
         String barrelKey = getBarrelKey(block);
-        int stored;
-        try {
-            stored = barrel.getStored(block);
-        } catch (RuntimeException ex) {
-            return;
-        }
-
-        if (stored <= 0) {
-            removeTracked(barrelKey);
-            return;
-        }
-
         ItemStack storedItem;
         try {
-            storedItem = barrel.getStoredItem(block);
-        } catch (RuntimeException ex) {
-            return;
-        }
-
-        if (storedItem == null || storedItem.getType() == Material.BARRIER || storedItem.getType().isAir()) {
-            removeTracked(barrelKey);
+            var contents = barrel.visibleContents(block);
+            if (!contents.safe() || contents.item() == null || contents.amount() <= 0) {
+                removeTracked(barrelKey);
+                return;
+            }
+            storedItem = contents.item();
+        } catch (RuntimeException | LinkageError unavailable) {
             return;
         }
 
@@ -242,21 +233,15 @@ public final class BarrelDisplayManager {
             }
 
             try {
-                int stored = barrel.getStored(block);
-                if (stored <= 0) {
+                var contents = barrel.visibleContents(block);
+                if (!contents.safe() || contents.item() == null || contents.amount() <= 0) {
                     player.sendActionBar(Component.text("Fluffy Barrel", NamedTextColor.GOLD)
                         .append(Component.text(" • ", NamedTextColor.DARK_GRAY))
-                        .append(Component.text("Empty", NamedTextColor.RED)));
+                        .append(Component.text(contents.safe() ? "Empty" : "Needs inspection", NamedTextColor.RED)));
                     continue;
                 }
-
-                ItemStack item = barrel.getStoredItem(block);
-                if (item == null || item.getType() == Material.BARRIER || item.getType().isAir()) {
-                    player.sendActionBar(Component.text("Fluffy Barrel", NamedTextColor.GOLD)
-                        .append(Component.text(" • ", NamedTextColor.DARK_GRAY))
-                        .append(Component.text("Empty", NamedTextColor.RED)));
-                    continue;
-                }
+                long stored = contents.amount();
+                ItemStack item = contents.item();
 
                 String amount = String.format(Locale.US, "%,d", stored);
                 Component itemName = getActualItemName(item);
@@ -275,7 +260,7 @@ public final class BarrelDisplayManager {
      * position in space. The center 50% of the barrel's display face acts as the hover
      * target, which is forgiving without making the whole block trigger the label.
      */
-    private static boolean isInsideFrontHoverZone(@Nonnull RayTraceResult result, @Nonnull Block block) {
+    static boolean isInsideFrontHoverZone(@Nonnull RayTraceResult result, @Nonnull Block block) {
         BlockFace face = getDisplayFace(block);
         if (result.getHitBlockFace() != face) {
             return false;
@@ -304,7 +289,7 @@ public final class BarrelDisplayManager {
      * followed by the modern item-name component, then the vanilla effective name.
      */
     @Nonnull
-    private static Component getActualItemName(@Nonnull ItemStack item) {
+    static Component getActualItemName(@Nonnull ItemStack item) {
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
             Component customName = meta.customName();
@@ -318,6 +303,14 @@ public final class BarrelDisplayManager {
         }
 
         return item.effectiveName();
+    }
+
+    public static void shutdown() {
+        if (hoverTask != null) hoverTask.cancel();
+        if (pruneTask != null) pruneTask.cancel();
+        hoverTask = null; pruneTask = null;
+        for (String key : java.util.List.copyOf(STATES.keySet())) removeTracked(key);
+        STATES.clear(); initialized = false;
     }
 
     private static void pruneStateCache() {

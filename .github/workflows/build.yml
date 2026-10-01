@@ -13,8 +13,8 @@ permissions:
   contents: write
 
 env:
-  LEGACY_ARTIFACT_VERSION: "26.2.12"
-  OUTPUT_NAME: "SF_FluffyMachines26.2.12.jar"
+  LEGACY_ARTIFACT_VERSION: "26.2.13"
+  OUTPUT_NAME: "SF_FluffyMachines26.2.13.jar"
 
 concurrency:
   group: fluffy-machines-${{ github.workflow }}-${{ github.ref }}
@@ -47,7 +47,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -Fq '<version>26.2.12</version>' pom.xml
+          grep -Fq '<version>26.2.13</version>' pom.xml
           grep -Fq '<maven.compiler.release>21</maven.compiler.release>' pom.xml
           grep -Fq '<paper.version>1.21.11-R0.1-SNAPSHOT</paper.version>' pom.xml
           grep -Fq '<finalName>SF_FluffyMachines${project.version}</finalName>' pom.xml
@@ -110,7 +110,7 @@ jobs:
           set -euo pipefail
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then TAG="$GITHUB_REF_NAME"; else TAG="v${LEGACY_ARTIFACT_VERSION}"; fi
           JAR="dist/${OUTPUT_NAME}"
-          NOTES="FluffyMachines 26.2.12 adds Paper 26.3 alpha compatibility validation while preserving the Java 21 universal release, the Paper 1.21.11 baseline, and Paper 26.2 as the primary production target. The Maven build now emits ${OUTPUT_NAME} directly without legacy or English suffixes."
+          NOTES="FluffyMachines 26.2.13 adds Paper 26.3 alpha compatibility validation while preserving the Java 21 universal release, the Paper 1.21.11 baseline, and Paper 26.2 as the primary production target. The Maven build now emits ${OUTPUT_NAME} directly without legacy or English suffixes."
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$JAR" --clobber
           else
