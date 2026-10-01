@@ -20,7 +20,6 @@ import me.mrCookieSlime.Slimefun.api.inventory.BlockMenu;
 import me.mrCookieSlime.Slimefun.api.inventory.BlockMenuPreset;
 import me.mrCookieSlime.Slimefun.api.inventory.DirtyChestMenu;
 import me.mrCookieSlime.Slimefun.api.item_transport.ItemTransportFlow;
-import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.Tag;
 import org.bukkit.block.Block;
@@ -46,30 +45,25 @@ public class BackpackLoader extends SlimefunItem implements EnergyNetComponent {
     private static final int[] OUTPUT_SLOTS = {53};
     private static final int BACKPACK_SLOT = 45;
 
-
     public BackpackLoader(ItemGroup category, SlimefunItemStack item, RecipeType recipeType, ItemStack[] recipe) {
         super(category, item, recipeType, recipe);
 
         addItemHandler(onBreak());
 
         new BlockMenuPreset(getId(), "&eBackpack Loader") {
-
             @Override
             public void init() {
                 buildBorder(this, PLAIN_BORDER, INPUT_BORDER, OUTPUT_BORDER);
-
                 for (int i : BACKPACK_BORDER) {
                     this.addItem(i, new CustomItemStack(new ItemStack(Material.YELLOW_STAINED_GLASS_PANE), " "),
-                        (p, slot, item, action) -> false
-                    );
+                        (p, slot, item, action) -> false);
                 }
             }
 
             @Override
             public boolean canOpen(@Nonnull Block b, @Nonnull Player p) {
                 return p.hasPermission("slimefun.inventory.bypass")
-                    || Slimefun.getProtectionManager().hasPermission(p, b.getLocation(),
-                    Interaction.INTERACT_BLOCK);
+                    || Slimefun.getProtectionManager().hasPermission(p, b.getLocation(), Interaction.INTERACT_BLOCK);
             }
 
             @Override
@@ -79,14 +73,9 @@ public class BackpackLoader extends SlimefunItem implements EnergyNetComponent {
 
             @Override
             public int[] getSlotsAccessedByItemTransport(DirtyChestMenu menu, ItemTransportFlow flow, ItemStack item) {
-                if (flow == ItemTransportFlow.WITHDRAW) {
-                    return getOutputSlots();
-                } else {
-                    return getInputSlots();
-                }
+                return flow == ItemTransportFlow.WITHDRAW ? getOutputSlots() : getInputSlots();
             }
         };
-
     }
 
     private BlockBreakHandler onBreak() {
@@ -95,7 +84,6 @@ public class BackpackLoader extends SlimefunItem implements EnergyNetComponent {
             public void onPlayerBreak(@Nonnull BlockBreakEvent e, @Nonnull ItemStack item, @Nonnull List<ItemStack> drops) {
                 Block b = e.getBlock();
                 BlockMenu inv = StorageCacheUtils.getMenu(b.getLocation());
-
                 if (inv != null) {
                     inv.dropItems(b.getLocation(), getInputSlots());
                     inv.dropItems(b.getLocation(), getOutputSlots());
@@ -119,33 +107,23 @@ public class BackpackLoader extends SlimefunItem implements EnergyNetComponent {
     }
 
     private void tick(@Nonnull Block b) {
-
         if (getCharge(b.getLocation()) < ENERGY_CONSUMPTION) {
             return;
         }
 
         final BlockMenu inv = StorageCacheUtils.getMenu(b.getLocation());
-        boolean invalidItem = false;
+        if (inv == null) {
+            return;
+        }
 
-        // If no backpack in backpack slot, search for one and if found move to BACKPACK_SLOT
+        // A modern Slimefun backpack is assigned by persistent identity. Legacy lore-only
+        // identities are also accepted by PlayerBackpack.hasBackpackIdentity.
         if (inv.getItemInSlot(BACKPACK_SLOT) == null) {
             for (int inputSlot : getInputSlots()) {
                 ItemStack backpackItem = inv.getItemInSlot(inputSlot);
                 if (backpackItem != null && SlimefunItem.getByItem(backpackItem) instanceof SlimefunBackpack) {
-
-                    // Make sure it has an ID
-                    List<String> lore = backpackItem.hasItemMeta() ? backpackItem.getItemMeta().getLore() : null;
-                    if (lore != null) {
-                        for (String line : lore) {
-                            if (line.equals(ChatColor.GRAY + "Owner: ")) {
-                                invalidItem = true;
-                                break;
-                            }
-                        }
-                    }
-                    if (!invalidItem) {
+                    if (PlayerBackpack.hasBackpackIdentity(backpackItem.getItemMeta())) {
                         moveItem(inv, inputSlot, BACKPACK_SLOT);
-
                     } else if (inv.getItemInSlot(getOutputSlots()[0]) == null) {
                         moveItem(inv, inputSlot, getOutputSlots()[0]);
                     }
@@ -155,8 +133,6 @@ public class BackpackLoader extends SlimefunItem implements EnergyNetComponent {
         }
 
         int occupiedInputSlot = 0;
-
-        // Are there any items in the input?
         for (int inputSlot : getInputSlots()) {
             if (inv.getItemInSlot(inputSlot) != null
                 && !(SlimefunItem.getByItem(inv.getItemInSlot(inputSlot)) instanceof SlimefunBackpack)
@@ -168,19 +144,15 @@ public class BackpackLoader extends SlimefunItem implements EnergyNetComponent {
             }
         }
 
-        // Loading the backpack
         ItemStack bpItem = inv.getItemInSlot(BACKPACK_SLOT);
         SlimefunItem sfItem = SlimefunItem.getByItem(bpItem);
         if (sfItem instanceof SlimefunBackpack) {
-
             int finalOccupiedInputSlot = occupiedInputSlot;
             PlayerBackpack.getAsync(bpItem, backpack -> {
                 if (backpack == null) {
                     return;
                 }
 
-                // Gugu/Legacy backpack callbacks may be asynchronous. Bukkit inventories and
-                // Slimefun block menus must only be changed from the primary server thread.
                 Utils.runSync(() -> {
                     Inventory backpackInventory = backpack.getInventory();
                     int backpackSlot = backpackInventory.firstEmpty();
@@ -200,8 +172,7 @@ public class BackpackLoader extends SlimefunItem implements EnergyNetComponent {
                     ItemStack storedItem = transferItem.clone();
                     inv.replaceExistingItem(finalOccupiedInputSlot, null);
                     backpackInventory.setItem(backpackSlot, storedItem);
-                    Slimefun.getDatabaseManager().getProfileDataController()
-                        .saveBackpackInventory(backpack);
+                    Slimefun.getDatabaseManager().getProfileDataController().saveBackpackInventory(backpack);
                     removeCharge(b.getLocation(), ENERGY_CONSUMPTION);
                 });
             }, false);
@@ -236,21 +207,15 @@ public class BackpackLoader extends SlimefunItem implements EnergyNetComponent {
     static void buildBorder(BlockMenuPreset preset, int[] plainBorder, int[] inputBorder, int[] outputBorder) {
         for (int i : plainBorder) {
             preset.addItem(i, new CustomItemStack(new ItemStack(Material.GRAY_STAINED_GLASS_PANE), " "),
-                (p, slot, item, action) -> false
-            );
+                (p, slot, item, action) -> false);
         }
-
         for (int i : inputBorder) {
             preset.addItem(i, new CustomItemStack(new ItemStack(Material.CYAN_STAINED_GLASS_PANE), " "),
-                (p, slot, item, action) -> false
-            );
+                (p, slot, item, action) -> false);
         }
-
         for (int i : outputBorder) {
             preset.addItem(i, new CustomItemStack(new ItemStack(Material.ORANGE_STAINED_GLASS_PANE), " "),
-                (p, slot, item, action) -> false
-            );
+                (p, slot, item, action) -> false);
         }
     }
 }
-

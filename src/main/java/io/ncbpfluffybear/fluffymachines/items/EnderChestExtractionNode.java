@@ -152,9 +152,10 @@ public class EnderChestExtractionNode extends SlimefunItem {
                 Block b = e.getBlock();
 
                 if (!e.isCancelled()) {
+                    String displayName = Utils.legacyString(p.displayName());
                     StorageCacheUtils.setData(b.getLocation(), "owner", p.getUniqueId().toString());
-                    StorageCacheUtils.setData(b.getLocation(), "playername", p.getDisplayName());
-                    Utils.send(p, "&aEnder Cargo Node bound to " + p.getDisplayName()
+                    StorageCacheUtils.setData(b.getLocation(), "playername", displayName);
+                    Utils.send(p, "&aEnder Cargo Node bound to " + displayName
                         + " &7(UUID: " + p.getUniqueId() + ")");
                 }
             }

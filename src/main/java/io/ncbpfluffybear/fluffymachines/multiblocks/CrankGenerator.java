@@ -27,7 +27,7 @@ public class CrankGenerator extends MultiBlockMachine {
 
     public void onInteract(Player p, Block b) {
         Block coreBlock = b.getRelative(BlockFace.DOWN);
-        SlimefunItem core = StorageCacheUtils.getSfItem(coreBlock.getLocation());
+        SlimefunItem core = StorageCacheUtils.getSlimefunItem(coreBlock.getLocation());
         if (core instanceof GeneratorCore) {
             ((GeneratorCore) core).addCharge(coreBlock.getLocation(), RATE);
             p.playSound(p.getLocation(), Sound.BLOCK_PISTON_EXTEND, 0.5F, 0.5F);

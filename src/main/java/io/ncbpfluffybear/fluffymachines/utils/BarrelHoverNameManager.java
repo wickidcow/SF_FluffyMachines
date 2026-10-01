@@ -14,7 +14,7 @@ import org.bukkit.entity.Display;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.TextDisplay;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.util.RayTraceResult;
 import org.bukkit.util.Transformation;
 import org.bukkit.util.Vector;
@@ -42,6 +42,7 @@ public final class BarrelHoverNameManager {
     private static final Set<UUID> VISIBLE_LABELS = new HashSet<>();
     private static final float LABEL_SCALE = 0.65F;
     private static boolean initialized;
+    private static BukkitTask task;
 
     private BarrelHoverNameManager() {
     }
@@ -57,10 +58,12 @@ public final class BarrelHoverNameManager {
         }
 
         initialized = true;
-        Bukkit.getScheduler().runTaskTimer(plugin, BarrelHoverNameManager::updateHoverNames, 10L, 5L);
+        task = Bukkit.getScheduler().runTaskTimer(plugin, BarrelHoverNameManager::updateHoverNames, 10L, 5L);
     }
 
     public static void shutdown() {
+        if (task != null) task.cancel();
+        task = null;
         for (TextDisplay label : LABELS.values()) {
             if (label != null && label.isValid()) {
                 label.remove();
@@ -83,6 +86,7 @@ public final class BarrelHoverNameManager {
         for (Player player : Bukkit.getOnlinePlayers()) {
             onlinePlayers.add(player.getUniqueId());
 
+            try {
             HoverTarget target = findHoverTarget(player);
             if (target == null) {
                 hideLabel(plugin, player);
@@ -90,6 +94,9 @@ public final class BarrelHoverNameManager {
             }
 
             showLabel(plugin, player, target.block, target.item);
+            } catch (RuntimeException | LinkageError unavailable) {
+                hideLabel(plugin, player);
+            }
         }
 
         Iterator<Map.Entry<UUID, TextDisplay>> iterator = LABELS.entrySet().iterator();
@@ -116,14 +123,14 @@ public final class BarrelHoverNameManager {
         }
 
         Block block = result.getHitBlock();
-        if (!(StorageCacheUtils.getSfItem(block.getLocation()) instanceof Barrel barrel)
-            || !isInsideFrontHoverZone(result, block)) {
+        if (!(StorageCacheUtils.getSlimefunItem(block.getLocation()) instanceof Barrel barrel)
+            || !BarrelDisplayManager.isInsideFrontHoverZone(result, block)) {
             return null;
         }
 
         try {
-            BarrelDisplayManager.VisibleContents contents = BarrelDisplayManager.getVisibleContents(block, barrel);
-            return contents == null ? null : new HoverTarget(block, contents.item);
+            var contents = barrel.visibleContents(block);
+            return !contents.safe() || contents.item() == null ? null : new HoverTarget(block, contents.item());
         } catch (RuntimeException ignored) {
             // Slimefun block data may still be loading during a chunk transition.
             return null;
@@ -152,7 +159,7 @@ public final class BarrelHoverNameManager {
             label.teleport(target);
         }
 
-        label.text(getActualItemName(item));
+        label.text(BarrelDisplayManager.getActualItemName(item));
 
         if (VISIBLE_LABELS.add(playerId)) {
             player.showEntity(plugin, label);
@@ -198,56 +205,11 @@ public final class BarrelHoverNameManager {
         return BlockFace.SOUTH;
     }
 
-    private static boolean isInsideFrontHoverZone(@Nonnull RayTraceResult result, @Nonnull Block block) {
-        BlockFace face = getDisplayFace(block);
-        if (result.getHitBlockFace() != face) {
-            return false;
-        }
-
-        Vector hit = result.getHitPosition();
-        double localX = hit.getX() - block.getX();
-        double localY = hit.getY() - block.getY();
-        double localZ = hit.getZ() - block.getZ();
-
-        return switch (face) {
-            case NORTH, SOUTH -> inCenterHalf(localX) && inCenterHalf(localY);
-            case EAST, WEST -> inCenterHalf(localZ) && inCenterHalf(localY);
-            case UP, DOWN -> inCenterHalf(localX) && inCenterHalf(localZ);
-            default -> false;
-        };
-    }
-
-    private static boolean inCenterHalf(double coordinate) {
-        return coordinate >= 0.25D && coordinate <= 0.75D;
-    }
-
     private static Location getLabelLocation(@Nonnull Block block, @Nonnull BlockFace face) {
         Vector faceOffset = new Vector(face.getModX(), face.getModY(), face.getModZ()).multiply(0.62D);
         return block.getLocation()
             .add(0.5D, 0.90D, 0.5D)
             .add(faceOffset);
-    }
-
-    /**
-     * Uses the item's real display component without changing its metadata. This
-     * means an ordinary unrenamed vanilla item still shows its translated vanilla
-     * name, while custom/Slimefun item names remain intact.
-     */
-    @Nonnull
-    private static Component getActualItemName(@Nonnull ItemStack item) {
-        ItemMeta meta = item.getItemMeta();
-        if (meta != null) {
-            Component customName = meta.customName();
-            if (customName != null) {
-                return customName;
-            }
-
-            if (meta.hasItemName()) {
-                return meta.itemName();
-            }
-        }
-
-        return item.effectiveName();
     }
 
     private static final class HoverTarget {

@@ -23,6 +23,8 @@ import me.mrCookieSlime.Slimefun.api.inventory.BlockMenu;
 import me.mrCookieSlime.Slimefun.api.inventory.BlockMenuPreset;
 import me.mrCookieSlime.Slimefun.api.inventory.DirtyChestMenu;
 import me.mrCookieSlime.Slimefun.api.item_transport.ItemTransportFlow;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
@@ -402,14 +404,13 @@ public class SmartFactory extends SlimefunItem implements EnergyNetComponent, Re
             return item;
         }
 
-        List<String> lore = displayMeta.hasLore()
-            ? new ArrayList<>(displayMeta.getLore())
-            : new ArrayList<>();
-        lore.add("");
-        lore.add(Utils.color("&eSneak-right-click while holding an item"));
-        lore.add(Utils.color("&ethe Smart Factory to set its recipe"));
+        List<Component> existingLore = displayMeta.hasLore() ? displayMeta.lore() : null;
+        List<Component> lore = existingLore == null ? new ArrayList<>() : new ArrayList<>(existingLore);
+        lore.add(Component.empty());
+        lore.add(Component.text("Sneak-right-click while holding an item", NamedTextColor.YELLOW));
+        lore.add(Component.text("the Smart Factory to set its recipe", NamedTextColor.YELLOW));
 
-        displayMeta.setLore(lore);
+        displayMeta.lore(lore);
         item.setItemMeta(displayMeta);
 
         return item;
@@ -424,18 +425,24 @@ public class SmartFactory extends SlimefunItem implements EnergyNetComponent, Re
             ItemStack display = sfStack.clone();
             ItemMeta displayMeta = display.getItemMeta();
 
-            List<String> lore = new ArrayList<>();
+            List<Component> lore = new ArrayList<>();
             // Display the first variation of the recipe to avoid clutter
             for (ItemStack item : ITEM_RECIPES.get(sfStack.getItem()).get(0)) {
-                lore.add(Utils.color("&e" + item.getAmount() + "x " + Utils.getViewableName(item)));
+                lore.add(Component.text(
+                    item.getAmount() + "x " + Utils.getViewableName(item),
+                    NamedTextColor.YELLOW
+                ));
             }
 
             if (ITEM_RECIPES.get(sfStack.getItem()).size() > 1) {
-                lore.add("");
-                lore.add(Utils.color("&7This recipe can use Magma Blocks as an alternative."));
+                lore.add(Component.empty());
+                lore.add(Component.text(
+                    "This recipe can use Magma Blocks as an alternative.",
+                    NamedTextColor.GRAY
+                ));
             }
 
-            displayMeta.setLore(lore);
+            displayMeta.lore(lore);
             display.setItemMeta(displayMeta);
             recipes.add(display);
 

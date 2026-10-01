@@ -3,7 +3,6 @@ package io.ncbpfluffybear.fluffymachines.utils;
 import com.xzavier0722.mc.plugin.slimefun4.storage.util.StorageCacheUtils;
 import io.ncbpfluffybear.fluffymachines.FluffyMachines;
 import io.ncbpfluffybear.fluffymachines.items.Barrel;
-import me.mrCookieSlime.Slimefun.api.inventory.BlockMenu;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
@@ -21,15 +20,16 @@ import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataType;
+import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.util.RayTraceResult;
 import org.bukkit.util.Transformation;
 import org.bukkit.util.Vector;
 
 import javax.annotation.Nonnull;
-import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Manages the non-interactive item icon shown on the face of a Fluffy Barrel.
@@ -40,10 +40,11 @@ import java.util.UUID;
  */
 public final class BarrelDisplayManager {
 
-    private static final Map<String, DisplayState> STATES = new HashMap<>();
-    private static final int[] OUTPUT_BUFFER_SLOTS = {24, 25};
+    private static final Map<String, DisplayState> STATES = new ConcurrentHashMap<>();
     private static final float DISPLAY_SCALE = 0.50F;
     private static boolean initialized;
+    private static BukkitTask hoverTask;
+    private static BukkitTask pruneTask;
     private static NamespacedKey displayKey;
 
     private BarrelDisplayManager() {
@@ -62,14 +63,14 @@ public final class BarrelDisplayManager {
         initialized = true;
         displayKey = new NamespacedKey(plugin, "barrel_item_display");
 
-        Bukkit.getScheduler().runTaskTimer(plugin, BarrelDisplayManager::showHoverText, 10L, 5L);
-        Bukkit.getScheduler().runTaskTimer(plugin, BarrelDisplayManager::pruneStateCache, 600L, 600L);
+        hoverTask = Bukkit.getScheduler().runTaskTimer(plugin, BarrelDisplayManager::showHoverText, 10L, 5L);
+        pruneTask = Bukkit.getScheduler().runTaskTimer(plugin, BarrelDisplayManager::pruneStateCache, 600L, 600L);
     }
 
     /**
      * Ensures that the barrel has exactly one ItemDisplay showing its current item.
-     * This method is safe to call from the barrel ticker because unchanged displays
-     * return immediately without searching nearby entities.
+     * Unchanged displays return from the in-memory state cache without performing
+     * an entity lookup or nearby-entity scan on every barrel tick.
      */
     public static void update(@Nonnull Block block, @Nonnull Barrel barrel) {
         initialize();
@@ -77,31 +78,28 @@ public final class BarrelDisplayManager {
             return;
         }
 
-        VisibleContents contents;
+        String barrelKey = getBarrelKey(block);
+        ItemStack storedItem;
         try {
-            contents = getVisibleContents(block, barrel);
-        } catch (RuntimeException ex) {
+            var contents = barrel.visibleContents(block);
+            if (!contents.safe() || contents.item() == null || contents.amount() <= 0) {
+                removeTracked(barrelKey);
+                return;
+            }
+            storedItem = contents.item();
+        } catch (RuntimeException | LinkageError unavailable) {
             return;
         }
 
-        if (contents == null) {
-            remove(block);
-            return;
-        }
-
-        ItemStack shownItem = contents.item.clone();
+        ItemStack shownItem = storedItem.clone();
         shownItem.setAmount(1);
 
         BlockFace face = getDisplayFace(block);
         int fingerprint = 31 * shownItem.hashCode() + face.ordinal();
-        String barrelKey = getBarrelKey(block);
         DisplayState state = STATES.get(barrelKey);
 
         if (state != null && state.fingerprint == fingerprint) {
-            Entity existing = Bukkit.getServer().getEntity(state.entityId);
-            if (existing instanceof ItemDisplay && existing.isValid()) {
-                return;
-            }
+            return;
         }
 
         ItemDisplay display = findExistingDisplay(block, barrelKey);
@@ -121,53 +119,6 @@ public final class BarrelDisplayManager {
     }
 
     /**
-     * Returns the item and amount a player should consider to be inside this barrel.
-     *
-     * <p>Fluffy Barrels intentionally pre-fill their two output slots so cargo can
-     * withdraw from them. Those buffered items have already been deducted from the
-     * internal "stored" counter, but they are still physically inside the barrel.
-     * Counting matching output-buffer items here keeps the native display accurate
-     * without changing the original cargo/storage behavior.</p>
-     */
-    static VisibleContents getVisibleContents(@Nonnull Block block, @Nonnull Barrel barrel) {
-        int internalStored = barrel.getStored(block);
-        ItemStack representative = null;
-        int visibleAmount = 0;
-
-        if (internalStored > 0) {
-            ItemStack storedItem = barrel.getStoredItem(block);
-            if (isDisplayable(storedItem)) {
-                representative = storedItem.clone();
-                representative.setAmount(1);
-                visibleAmount = internalStored;
-            }
-        }
-
-        BlockMenu menu = StorageCacheUtils.getMenu(block.getLocation());
-        if (menu != null) {
-            for (int slot : OUTPUT_BUFFER_SLOTS) {
-                ItemStack buffered = menu.getItemInSlot(slot);
-                if (!isDisplayable(buffered)) {
-                    continue;
-                }
-
-                if (representative == null) {
-                    representative = buffered.clone();
-                    representative.setAmount(1);
-                }
-
-                if (representative.isSimilar(buffered)) {
-                    visibleAmount += buffered.getAmount();
-                }
-            }
-        }
-
-        return representative == null || visibleAmount <= 0
-            ? null
-            : new VisibleContents(representative, visibleAmount);
-    }
-
-    /**
      * Removes all native item displays linked to this barrel.
      */
     public static void remove(@Nonnull Block block) {
@@ -177,19 +128,25 @@ public final class BarrelDisplayManager {
         }
 
         String barrelKey = getBarrelKey(block);
-        DisplayState state = STATES.remove(barrelKey);
-        if (state != null) {
-            Entity entity = Bukkit.getServer().getEntity(state.entityId);
-            if (entity instanceof ItemDisplay) {
-                entity.remove();
-            }
-        }
+        removeTracked(barrelKey);
 
         Location center = block.getLocation().add(0.5, 0.5, 0.5);
         for (Entity entity : block.getWorld().getNearbyEntities(center, 1.25, 1.25, 1.25)) {
             if (entity instanceof ItemDisplay display && barrelKey.equals(getDisplayOwner(display))) {
                 display.remove();
             }
+        }
+    }
+
+    private static void removeTracked(@Nonnull String barrelKey) {
+        DisplayState state = STATES.remove(barrelKey);
+        if (state == null) {
+            return;
+        }
+
+        Entity entity = Bukkit.getServer().getEntity(state.entityId);
+        if (entity instanceof ItemDisplay) {
+            entity.remove();
         }
     }
 
@@ -234,7 +191,6 @@ public final class BarrelDisplayManager {
             if (result == null) {
                 result = display;
             } else {
-                // Clean up duplicate displays left by an interrupted reload/update.
                 display.remove();
             }
         }
@@ -251,8 +207,6 @@ public final class BarrelDisplayManager {
             return directional.getFacing();
         }
 
-        // Some higher-tier Fluffy Barrels use non-directional block materials.
-        // SOUTH gives those blocks one predictable display face.
         return BlockFace.SOUTH;
     }
 
@@ -273,22 +227,24 @@ public final class BarrelDisplayManager {
             }
 
             Block block = result.getHitBlock();
-            if (!(StorageCacheUtils.getSfItem(block.getLocation()) instanceof Barrel barrel)
+            if (!(StorageCacheUtils.getSlimefunItem(block.getLocation()) instanceof Barrel barrel)
                 || !isInsideFrontHoverZone(result, block)) {
                 continue;
             }
 
             try {
-                VisibleContents contents = getVisibleContents(block, barrel);
-                if (contents == null) {
+                var contents = barrel.visibleContents(block);
+                if (!contents.safe() || contents.item() == null || contents.amount() <= 0) {
                     player.sendActionBar(Component.text("Fluffy Barrel", NamedTextColor.GOLD)
                         .append(Component.text(" • ", NamedTextColor.DARK_GRAY))
-                        .append(Component.text("Empty", NamedTextColor.RED)));
+                        .append(Component.text(contents.safe() ? "Empty" : "Needs inspection", NamedTextColor.RED)));
                     continue;
                 }
+                long stored = contents.amount();
+                ItemStack item = contents.item();
 
-                String amount = String.format(Locale.US, "%,d", contents.amount);
-                Component itemName = getActualItemName(contents.item);
+                String amount = String.format(Locale.US, "%,d", stored);
+                Component itemName = getActualItemName(item);
                 player.sendActionBar(itemName
                     .append(Component.text(" • ", NamedTextColor.DARK_GRAY))
                     .append(Component.text(amount, NamedTextColor.YELLOW))
@@ -304,7 +260,7 @@ public final class BarrelDisplayManager {
      * position in space. The center 50% of the barrel's display face acts as the hover
      * target, which is forgiving without making the whole block trigger the label.
      */
-    private static boolean isInsideFrontHoverZone(@Nonnull RayTraceResult result, @Nonnull Block block) {
+    static boolean isInsideFrontHoverZone(@Nonnull RayTraceResult result, @Nonnull Block block) {
         BlockFace face = getDisplayFace(block);
         if (result.getHitBlockFace() != face) {
             return false;
@@ -327,17 +283,13 @@ public final class BarrelDisplayManager {
         return coordinate >= 0.25D && coordinate <= 0.75D;
     }
 
-    private static boolean isDisplayable(ItemStack item) {
-        return item != null && item.getType() != Material.BARRIER && !item.getType().isAir();
-    }
-
     /**
      * Returns the name Minecraft actually associates with the stored item while
      * preserving its Adventure colors and styles. Custom names take precedence,
      * followed by the modern item-name component, then the vanilla effective name.
      */
     @Nonnull
-    private static Component getActualItemName(@Nonnull ItemStack item) {
+    static Component getActualItemName(@Nonnull ItemStack item) {
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
             Component customName = meta.customName();
@@ -353,22 +305,25 @@ public final class BarrelDisplayManager {
         return item.effectiveName();
     }
 
+    public static void shutdown() {
+        if (hoverTask != null) hoverTask.cancel();
+        if (pruneTask != null) pruneTask.cancel();
+        hoverTask = null; pruneTask = null;
+        for (String key : java.util.List.copyOf(STATES.keySet())) removeTracked(key);
+        STATES.clear(); initialized = false;
+    }
+
     private static void pruneStateCache() {
         STATES.entrySet().removeIf(entry -> {
             DisplayState state = entry.getValue();
             World world = Bukkit.getWorld(state.worldId);
-            return world == null || !world.isChunkLoaded(state.chunkX, state.chunkZ);
+            if (world == null || !world.isChunkLoaded(state.chunkX, state.chunkZ)) {
+                return true;
+            }
+
+            Entity entity = Bukkit.getServer().getEntity(state.entityId);
+            return !(entity instanceof ItemDisplay) || !entity.isValid();
         });
-    }
-
-    static final class VisibleContents {
-        final ItemStack item;
-        final int amount;
-
-        private VisibleContents(@Nonnull ItemStack item, int amount) {
-            this.item = item;
-            this.amount = amount;
-        }
     }
 
     private static final class DisplayState {

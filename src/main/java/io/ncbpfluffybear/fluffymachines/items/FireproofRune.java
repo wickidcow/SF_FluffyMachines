@@ -7,7 +7,8 @@ import io.ncbpfluffybear.fluffymachines.utils.Utils;
 import io.github.thebusybiscuit.slimefun4.api.recipes.RecipeType;
 import io.github.thebusybiscuit.slimefun4.api.items.ItemGroup;
 import io.github.thebusybiscuit.slimefun4.api.items.SlimefunItemStack;
-import org.bukkit.ChatColor;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
@@ -44,7 +45,7 @@ public class FireproofRune extends SimpleSlimefunItem<ItemDropHandler> {
 
     private static final double RANGE = 1.5;
     private static final NamespacedKey FIREPROOF_KEY = new NamespacedKey(FluffyMachines.getInstance(), "fireproof");
-    private static final String FIREPROOF_LORE = ChatColor.RED + "Fireproof";
+    private static final Component FIREPROOF_LORE = Component.text("Fireproof", NamedTextColor.RED);
 
 
     public FireproofRune(ItemGroup category, SlimefunItemStack item, RecipeType type, ItemStack[] recipe) {
@@ -127,9 +128,10 @@ public class FireproofRune extends SimpleSlimefunItem<ItemDropHandler> {
             PersistentDataContainer container = meta.getPersistentDataContainer();
             if (!isFireproof) {
                 container.set(FIREPROOF_KEY, PersistentDataType.BYTE, (byte) 1);
-                List<String> lore = meta.hasLore() ? meta.getLore() : new ArrayList<>();
+                List<Component> existingLore = meta.hasLore() ? meta.lore() : null;
+                List<Component> lore = existingLore == null ? new ArrayList<>() : new ArrayList<>(existingLore);
                 lore.add(FIREPROOF_LORE);
-                meta.setLore(lore);
+                meta.lore(lore);
                 item.setItemMeta(meta);
             }
         }

@@ -4,14 +4,14 @@ import com.xzavier0722.mc.plugin.slimefun4.storage.util.StorageCacheUtils;
 import io.github.thebusybiscuit.slimefun4.core.handlers.BlockBreakHandler;
 import io.github.thebusybiscuit.slimefun4.implementation.Slimefun;
 import io.github.thebusybiscuit.slimefun4.implementation.handlers.SimpleBlockBreakHandler;
-import io.github.thebusybiscuit.slimefun4.libraries.dough.common.ChatColors;
 import io.github.thebusybiscuit.slimefun4.libraries.dough.protection.Interaction;
 import io.github.thebusybiscuit.slimefun4.utils.ChestMenuUtils;
 import io.ncbpfluffybear.fluffymachines.FluffyMachines;
 import me.mrCookieSlime.CSCoreLibPlugin.general.Inventory.ChestMenu;
 import me.mrCookieSlime.Slimefun.api.inventory.BlockMenu;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Bukkit;
-import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.block.Block;
@@ -32,6 +32,10 @@ import java.util.TreeMap;
 
 public final class Utils {
 
+    private static final LegacyComponentSerializer LEGACY_COMPONENTS = LegacyComponentSerializer.legacyAmpersand();
+    private static final LegacyComponentSerializer LEGACY_SECTION = LegacyComponentSerializer.legacySection();
+    private static final char LEGACY_COLOR_CHAR = '\u00A7';
+    private static final String LEGACY_COLOR_CODES = "0123456789AaBbCcDdEeFfKkLlMmNnOoRrXx";
     private static final NamespacedKey fluffykey = new NamespacedKey(FluffyMachines.getInstance(), "fluffykey");
     private static final NamespacedKey nonClickable = new NamespacedKey(FluffyMachines.getInstance(), "nonclickable");
 
@@ -63,7 +67,37 @@ public final class Utils {
             return null;
         }
 
-        return ChatColor.translateAlternateColorCodes('&', str);
+        char[] chars = str.toCharArray();
+        for (int i = 0; i < chars.length - 1; i++) {
+            if (chars[i] == '&' && LEGACY_COLOR_CODES.indexOf(chars[i + 1]) >= 0) {
+                chars[i] = LEGACY_COLOR_CHAR;
+                chars[i + 1] = Character.toLowerCase(chars[i + 1]);
+            }
+        }
+        return new String(chars);
+    }
+
+    public static String legacyString(Component component) {
+        return LEGACY_SECTION.serialize(component);
+    }
+
+    public static Component legacyComponent(String legacy) {
+        return LEGACY_SECTION.deserialize(legacy);
+    }
+
+    public static boolean hasLegacyCustomModelData(@Nullable ItemMeta meta, float expected) {
+        if (meta == null || !meta.hasCustomModelDataComponent()) {
+            return false;
+        }
+
+        List<Float> values = meta.getCustomModelDataComponent().getFloats();
+        return values.size() == 1 && Float.compare(values.get(0), expected) == 0;
+    }
+
+    public static void setLegacyCustomModelData(@Nonnull ItemMeta meta, float value) {
+        var component = meta.getCustomModelDataComponent();
+        component.setFloats(List.of(value));
+        meta.setCustomModelDataComponent(component);
     }
 
     public static void send(CommandSender p, String message) {
@@ -78,19 +112,15 @@ public final class Utils {
     public static ItemStack buildNonInteractable(Material material, @Nullable String name, @Nullable String... lore) {
         ItemStack nonClickableItem = new ItemStack(material);
         ItemMeta NCMeta = nonClickableItem.getItemMeta();
-        if (name != null) {
-            NCMeta.setDisplayName(ChatColors.color(name));
-        } else {
-            NCMeta.setDisplayName(" ");
-        }
+        NCMeta.displayName(name != null ? LEGACY_COMPONENTS.deserialize(name) : Component.text(" "));
 
         if (lore.length > 0) {
-            List<String> lines = new ArrayList<>();
+            List<Component> lines = new ArrayList<>();
 
             for (String line : lore) {
-                lines.add(ChatColor.translateAlternateColorCodes('&', line));
+                lines.add(LEGACY_COMPONENTS.deserialize(line));
             }
-            NCMeta.setLore(lines);
+            NCMeta.lore(lines);
         }
 
         NCMeta.getPersistentDataContainer().set(nonClickable, PersistentDataType.BYTE, (byte) 1);

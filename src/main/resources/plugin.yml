@@ -1,13 +1,13 @@
 name: FluffyMachines
 author: NCBPFluffyBear
-description: English maintenance build of FluffyMachines for Slimefun Legacy/Gugu-compatible cores
+description: English maintenance build of FluffyMachines for Minecraft 1.21.11 through 26.2 and Slimefun-compatible cores
 main: io.ncbpfluffybear.fluffymachines.FluffyMachines
 
 depend: [Slimefun]
 softdepend: [mcMMO, NoCheatPlus]
 
 version: ${project.version}
-api-version: '26.2'
+api-version: '1.21.11'
 
 commands:
   fluffymachines:

@@ -7,6 +7,7 @@ import io.github.thebusybiscuit.slimefun4.utils.SlimefunUtils;
 import io.ncbpfluffybear.fluffymachines.multiblocks.components.SuperheatedFurnace;
 import io.ncbpfluffybear.fluffymachines.utils.FluffyItems;
 import io.ncbpfluffybear.fluffymachines.utils.Utils;
+import net.kyori.adventure.text.Component;
 import io.github.thebusybiscuit.slimefun4.api.items.ItemGroup;
 
 import io.github.thebusybiscuit.slimefun4.api.items.SlimefunItemStack;
@@ -57,7 +58,7 @@ public class Foundry extends MultiBlockMachine {
                 lavaStand.setCanPickupItems(false);
                 lavaStand.setGravity(false);
                 lavaStand.setVisible(false);
-                lavaStand.setCustomName("hehexdfluff");
+                lavaStand.customName(Component.text("hehexdfluff"));
                 lavaStand.setCustomNameVisible(false);
                 Furnace furnace = (Furnace) b.getState();
                 furnace.setBurnTime((short) 1000000);

@@ -23,7 +23,6 @@ import me.mrCookieSlime.Slimefun.api.inventory.BlockMenu;
 import me.mrCookieSlime.Slimefun.api.inventory.BlockMenuPreset;
 import me.mrCookieSlime.Slimefun.api.inventory.DirtyChestMenu;
 import me.mrCookieSlime.Slimefun.api.item_transport.ItemTransportFlow;
-import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Entity;
@@ -308,10 +307,7 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
     protected void tick(Block b) {
         BlockMenu inv = StorageCacheUtils.getMenu(b.getLocation());
         int capacity = getCapacity(b);
-
-        // Repair older barrels that have buffered items but lost their registered
-        // display item, and clear registration only when the barrel is truly empty.
-        syncRegistration(inv, b, capacity);
+        if (inv == null || !syncRegistration(inv, b, capacity)) return;
 
         for (int slot : INPUT_SLOTS) {
             acceptInput(inv, b, slot, capacity);
@@ -320,38 +316,23 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
         for (int ignored : OUTPUT_SLOTS) {
             pushOutput(inv, b, capacity);
         }
-
-        syncRegistration(inv, b, capacity);
     }
 
     void acceptInput(BlockMenu inv, Block b, int slot, int capacity) {
         ItemStack item = inv.getItemInSlot(slot);
-        if (item == null) {
-            return;
-        }
-
+        if (!isRealItem(item)) return;
         int stored = getStored(b);
-        ItemStack displayItem = inv.getItemInSlot(DISPLAY_SLOT);
-
-        // The first accepted item registers the barrel immediately. Registration is
-        // independent of the internal stored counter because up to two stacks can sit
-        // in the output buffers while stored is zero.
-        if (!isRegisteredItem(displayItem)) {
-            registerItem(b, inv, slot, item, capacity, stored);
+        if (stored < 0) return;
+        ItemStack display = inv.getItemInSlot(DISPLAY_SLOT);
+        if (!isRegisteredItem(display)) {
+            if (stored == 0 && capacity > 0) registerItem(b, inv, slot, item, capacity, stored);
             return;
         }
-
-        if (!matchMeta(Utils.unKeyItem(displayItem), item)) {
-            return;
-        }
-
+        if (!matchMeta(Utils.unKeyItem(display), item)) return;
         if (stored < capacity) {
-            // Can fit entire itemstack
-            if (stored + item.getAmount() <= capacity) {
-                storeItem(b, inv, slot, item, capacity, stored);
-
-                // Split itemstack
-            } else {
+            // Subtraction avoids overflowing an almost-full integer counter.
+            if (item.getAmount() <= capacity - stored) storeItem(b, inv, slot, item, capacity, stored);
+            else {
                 int amount = capacity - stored;
                 inv.consumeItem(slot, amount);
                 setStored(b, stored + amount);
@@ -380,7 +361,7 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
                     updateMenu(b, inv, false, capacity);
                 }
 
-            } else if (stored != 0) {   // Output remaining
+            } else if (stored > 0) {   // Output remaining
 
                 ItemStack clone = new CustomItemStack(Utils.unKeyItem(displayItem), stored);
                 if (inv.fits(clone, OUTPUT_SLOTS)) {
@@ -414,48 +395,42 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
         setStored(b, stored + amount);
         updateMenu(b, inv, false, capacity);
     }
-
-    private void syncRegistration(BlockMenu inv, Block b, int capacity) {
-        if (inv == null) {
-            return;
-        }
-
-        ItemStack displayItem = inv.getItemInSlot(DISPLAY_SLOT);
-        ItemStack bufferedItem = getFirstBufferedItem(inv);
-        int stored = getStored(b);
-
-        // Upgrade barrels created under the old behavior: if the center slot says
-        // "No item" but an output buffer contains something, restore registration
-        // from that buffered stack before accepting any new input.
-        if (!isRegisteredItem(displayItem) && bufferedItem != null) {
-            inv.replaceExistingItem(DISPLAY_SLOT, new CustomItemStack(Utils.keyItem(bufferedItem), 1));
-            updateMenu(b, inv, false, capacity);
-            return;
-        }
-
-        // A registered item remains locked while either internal storage or either
-        // output buffer still contains it. Only a truly empty barrel forgets its type.
-        if (isRegisteredItem(displayItem) && stored == 0 && bufferedItem == null) {
-            updateMenu(b, inv, false, capacity);
-        }
+    private static boolean isRealItem(ItemStack item) {
+        return item != null && !item.getType().isAir() && item.getAmount() > 0;
     }
 
-    private ItemStack getFirstBufferedItem(BlockMenu inv) {
-        for (int slot : OUTPUT_SLOTS) {
-            ItemStack item = inv.getItemInSlot(slot);
-            if (item != null && !item.getType().isAir()) {
-                return item;
-            }
+    private static boolean isRegisteredItem(ItemStack item) {
+        return isRealItem(item) && item.getType() != Material.BARRIER;
+    }
+
+    /** Includes the two real output stacks; never changes their metadata. */
+    public BarrelContents<ItemStack> visibleContents(Block b) {
+        BlockMenu menu = StorageCacheUtils.getMenu(b.getLocation());
+        if (menu == null) return BarrelContents.inspect(-1, null, null, null, this::matchMeta, ItemStack::getAmount);
+        return inspectContents(menu, b);
+    }
+
+    private BarrelContents<ItemStack> inspectContents(BlockMenu menu, Block b) {
+        ItemStack display = menu.getItemInSlot(DISPLAY_SLOT);
+        ItemStack first = menu.getItemInSlot(OUTPUT_SLOTS[0]);
+        ItemStack second = menu.getItemInSlot(OUTPUT_SLOTS[1]);
+        return BarrelContents.inspect(getStored(b),
+                isRegisteredItem(display) ? Utils.unKeyItem(display) : null,
+                isRealItem(first) ? first : null, isRealItem(second) ? second : null,
+                this::matchMeta, ItemStack::getAmount);
+    }
+
+    private boolean syncRegistration(BlockMenu menu, Block b, int capacity) {
+        BarrelContents<ItemStack> contents = inspectContents(menu, b);
+        if (!contents.safe()) return false;
+        ItemStack current = menu.getItemInSlot(DISPLAY_SLOT);
+        if (contents.item() != null && !isRegisteredItem(current)) {
+            menu.replaceExistingItem(DISPLAY_SLOT, new CustomItemStack(Utils.keyItem(contents.item()), 1));
+            updateMenu(b, menu, false, capacity);
+        } else if (contents.item() == null && isRegisteredItem(current)) {
+            updateMenu(b, menu, false, capacity);
         }
-        return null;
-    }
-
-    private boolean hasBufferedItems(BlockMenu inv) {
-        return getFirstBufferedItem(inv) != null;
-    }
-
-    private boolean isRegisteredItem(ItemStack item) {
-        return item != null && item.getType() != Material.BARRIER && !item.getType().isAir();
+        return true;
     }
 
     /**
@@ -507,7 +482,8 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
         if (showHologram.getValue() && isHologramEnabled(b)) {
             updateHologram(b, itemName, " &9x" + stored + " &7(" + storedPercent + "&7%)");
         }
-        if (stored == 0 && !hasBufferedItems(inv)) {
+        if (stored == 0 && !isRealItem(inv.getItemInSlot(OUTPUT_SLOTS[0]))
+                && !isRealItem(inv.getItemInSlot(OUTPUT_SLOTS[1]))) {
             inv.replaceExistingItem(DISPLAY_SLOT, new CustomItemStack(Material.BARRIER, "&cNo item"));
             if (showHologram.getValue() && isHologramEnabled(b)) {
                 updateHologram(b, null, "&cNo item");
@@ -517,7 +493,7 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
     /**
      * This method toggles if a hologram is present above the barrel.
      *
-     * @param b is the barrel block
+     * @param b is the block the hologram is linked to
      */
     private void toggleHolo(Block b, int capacity) {
         if (isHologramEnabled(b)) {
@@ -562,6 +538,7 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
         StorageCacheUtils.getMenu(b.getLocation()).replaceExistingItem(slot, displayItem);
     }
     public void insertAll(Player p, BlockMenu menu, Block b) {
+        if (!syncRegistration(menu, b, getCapacity(b))) return;
         ItemStack storedItem = Utils.unKeyItem(menu.getItemInSlot(DISPLAY_SLOT));
         PlayerInventory inv = p.getInventory();
         int capacity = getCapacity(b);
@@ -573,7 +550,7 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
                 continue;
             }
             int amount = item.getAmount();
-            if (matchMeta(item, storedItem) && stored + amount <= capacity) {
+            if (matchMeta(item, storedItem) && stored >= 0 && stored <= capacity && amount <= capacity - stored) {
                 inv.setItem(i, null);
                 stored += amount;
             }
@@ -583,6 +560,7 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
     }
 
     public void extract(Player p, BlockMenu menu, Block b, ClickAction action) {
+        if (!syncRegistration(menu, b, getCapacity(b))) return;
         ItemStack storedItem = getStoredItem(b);
         int capacity = getCapacity(b);
 
@@ -651,8 +629,8 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
         // Using same format that is used on lore power
         String formattedString = STORAGE_INDICATOR_FORMAT.format(num);
         if (formattedString.indexOf('.') != -1) {
-            return formattedString.substring(0, formattedString.indexOf('.')) + ChatColor.DARK_GRAY
-                + formattedString.substring(formattedString.indexOf('.')) + ChatColor.GRAY;
+            return formattedString.substring(0, formattedString.indexOf('.')) + Utils.color("&8")
+                + formattedString.substring(formattedString.indexOf('.')) + Utils.color("&7");
         } else {
             return formattedString;
         }

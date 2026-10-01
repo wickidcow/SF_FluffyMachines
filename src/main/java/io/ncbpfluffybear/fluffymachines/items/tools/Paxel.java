@@ -8,6 +8,7 @@ import io.github.thebusybiscuit.slimefun4.core.attributes.NotPlaceable;
 import io.github.thebusybiscuit.slimefun4.utils.tags.SlimefunTag;
 import io.ncbpfluffybear.fluffymachines.FluffyMachines;
 import io.ncbpfluffybear.fluffymachines.utils.FluffyItems;
+import io.ncbpfluffybear.fluffymachines.utils.Utils;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
@@ -23,8 +24,11 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockDamageEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
 
 public class Paxel extends SlimefunItem implements Listener, NotPlaceable {
+
+    private static final int DEFAULT_PAXEL_MODEL_DATA = 2201302;
 
     public final Set<Material> axeBlocks = Stream.of(
             Tag.LOGS.getValues(),
@@ -49,9 +53,20 @@ public class Paxel extends SlimefunItem implements Listener, NotPlaceable {
     ).flatMap(Set::stream).collect(Collectors.toSet());
 
     public Paxel(ItemGroup category, SlimefunItemStack item, RecipeType recipeType, ItemStack[] recipe) {
-        super(category, item, recipeType, recipe);
+        super(category, ensureGuideTexture(item), recipeType, recipe);
 
         Bukkit.getPluginManager().registerEvents(this, FluffyMachines.getInstance());
+    }
+
+    private static SlimefunItemStack ensureGuideTexture(SlimefunItemStack item) {
+        ItemMeta meta = item.getItemMeta();
+
+        if (!meta.hasCustomModelDataComponent()) {
+            Utils.setLegacyCustomModelData(meta, DEFAULT_PAXEL_MODEL_DATA);
+            item.setItemMeta(meta);
+        }
+
+        return item;
     }
 
     @EventHandler(ignoreCancelled = true)

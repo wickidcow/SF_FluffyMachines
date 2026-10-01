@@ -11,6 +11,7 @@ import io.ncbpfluffybear.fluffymachines.items.FireproofRune;
 import io.ncbpfluffybear.fluffymachines.items.HelicopterHat;
 import io.ncbpfluffybear.fluffymachines.items.tools.WateringCan;
 import io.ncbpfluffybear.fluffymachines.machines.AlternateElevatorPlate;
+import net.kyori.adventure.text.Component;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.Particle;
@@ -67,7 +68,7 @@ public class Events implements Listener {
             Entity target = e.getRightClicked();
             if (target instanceof Player && WateringCan.updateUses(wateringCan, p, item, 3)) {
                 Utils.send(p, "&bSplash!");
-                Utils.send((Player) target, "&bYou were splashed by " + p.getDisplayName() + "!");
+                Utils.send((Player) target, "&bYou were splashed by " + Utils.legacyString(p.displayName()) + "!");
                 ((Player) target).addPotionEffect(new PotionEffect(PotionEffectType.SLOWNESS, 60, 1));
             }
         }
@@ -91,17 +92,18 @@ public class Events implements Listener {
     @EventHandler(ignoreCancelled = true)
     public void onNonClickableClick(InventoryClickEvent e) {
         ItemStack item = e.getCurrentItem();
-        if (item != null && item.getType() != Material.AIR && (item.getItemMeta().hasCustomModelData()
-            && item.getItemMeta().getCustomModelData() == 6969) || Utils.checkNonInteractable(item)) {
+        if (item != null && item.getType() != Material.AIR
+            && (Utils.hasLegacyCustomModelData(item.getItemMeta(), 6969F)
+                || Utils.checkNonInteractable(item))) {
             e.setCancelled(true);
         }
     }
 
     @EventHandler(ignoreCancelled = true)
     public void onHeadRemove(PlayerArmorStandManipulateEvent e) {
-        if (e.getRightClicked().getCustomName() != null
-            && e.getRightClicked().getCustomName().equals("hehexdfluff"))
+        if (Component.text("hehexdfluff").equals(e.getRightClicked().customName())) {
             e.setCancelled(true);
+        }
     }
 
     @EventHandler(ignoreCancelled = true)
@@ -223,7 +225,7 @@ public class Events implements Listener {
             return;
         }
 
-        SlimefunItem item = StorageCacheUtils.getSfItem(e.getClickedBlock().getLocation());
+        SlimefunItem item = StorageCacheUtils.getSlimefunItem(e.getClickedBlock().getLocation());
         if (item != null && item.getId().equals(FluffyItems.ALTERNATE_ELEVATOR_PLATE.getItemId())) {
             AlternateElevatorPlate elevator = ((AlternateElevatorPlate) FluffyItems.ALTERNATE_ELEVATOR_PLATE.getItem());
             elevator.openInterface(e.getPlayer(), e.getClickedBlock());
@@ -249,7 +251,7 @@ public class Events implements Listener {
 
     @EventHandler(ignoreCancelled = true)
     public void onBarrelBurn(BlockBurnEvent e) {
-        if (StorageCacheUtils.getSfItem(e.getBlock().getLocation()) instanceof Barrel) {
+        if (StorageCacheUtils.getSlimefunItem(e.getBlock().getLocation()) instanceof Barrel) {
             e.setCancelled(true);
         }
     }

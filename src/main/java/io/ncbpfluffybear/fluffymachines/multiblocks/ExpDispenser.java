@@ -40,7 +40,7 @@ public class ExpDispenser extends MultiBlockMachine {
         }
 
         Block barrel = dispenser.getRelative(((Directional) dispenser.getBlockData()).getFacing());
-        SlimefunItem sfItem = StorageCacheUtils.getSfItem(barrel.getLocation());
+        SlimefunItem sfItem = StorageCacheUtils.getSlimefunItem(barrel.getLocation());
 
         if (sfItem instanceof Barrel) {
             Barrel sfBarrel = (Barrel) sfItem;
