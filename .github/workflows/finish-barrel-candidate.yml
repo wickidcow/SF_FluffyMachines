@@ -20,20 +20,19 @@ jobs:
           distribution: temurin
           java-version: '25'
           cache: maven
-      - name: Apply the exact reviewed source patch
+      - name: Apply and verify the exact reviewed source
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p evidence dist
+          mkdir -p evidence dist provided
           python3 - <<'PY'
           import base64,gzip,hashlib,json,pathlib,subprocess
           repo='wickidcow/SF_FluffyMachines'
-          parts=['16a497ca305af6a35a81a174035c04ff46736468','4e9530421d27124962639bba1715290bc24a9403','68a336159177d632f09381b4b4c24d06e94c12c9']
           encoded=''
-          for sha in parts:
+          for sha in ['16a497ca305af6a35a81a174035c04ff46736468','4e9530421d27124962639bba1715290bc24a9403','68a336159177d632f09381b4b4c24d06e94c12c9']:
               record=json.loads(subprocess.check_output(['gh','api','repos/'+repo+'/git/blobs/'+sha],text=True))
-              content=base64.b64decode(record['content']);assert hashlib.sha1(b'blob '+str(len(content)).encode()+b'\0'+content).hexdigest()==sha
-              encoded+=content.decode()
+              b=base64.b64decode(record['content']);assert hashlib.sha1(b'blob '+str(len(b)).encode()+b'\0'+b).hexdigest()==sha
+              encoded+=b.decode()
           compressed=base64.b64decode(encoded,validate=True)
           assert hashlib.sha256(compressed).hexdigest()=='d3fc8de6eed26ad2597ff86d6a16c35fb14beb6dc61dd06514cc6f5b492ef6fc'
           patch=gzip.decompress(compressed)
@@ -43,37 +42,35 @@ jobs:
           subprocess.run(['git','-C','candidate','apply','--check',str(p.resolve())],check=True)
           subprocess.run(['git','-C','candidate','apply',str(p.resolve())],check=True)
           subprocess.run(['git','-C','candidate','add','-N','.'],check=True)
-          paths=subprocess.check_output(['git','-C','candidate','diff','--name-only','HEAD'],text=True).splitlines()
-          assert len(paths)==9,paths
+          paths=subprocess.check_output(['git','-C','candidate','diff','--name-only','HEAD'],text=True).splitlines();assert len(paths)==9,paths
           files={}
           for name in paths:
-              data=(pathlib.Path('candidate')/name).read_bytes();files[name]=hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+              b=(pathlib.Path('candidate')/name).read_bytes();files[name]=hashlib.sha1(b'blob '+str(len(b)).encode()+b'\0'+b).hexdigest()
           pathlib.Path('evidence/candidate-files.json').write_text(json.dumps({'base':'a44d7e4845430a00627739a06fdb3df70baa47e1','files':files},indent=2)+'\n')
           PY
           git -C candidate diff --check
           python3 candidate/scripts/verify_doctor_migration.py candidate
-      - name: Full retained-API builds and all tests
-        run: |
-          set -euo pipefail
-          for API in 1.21.11-R0.1-SNAPSHOT 26.2.build.129-stable 26.3-rc-3.build.1-alpha; do
-            mvn -B -ntp -f candidate/pom.xml clean verify -Dpaper.version="$API" 2>&1 | tee "evidence/build-$API.log"
-            mkdir -p "evidence/tests-$API"
-            cp candidate/target/surefire-reports/TEST-*.xml "evidence/tests-$API/"
-          done
-      - name: Rebuild universal JAR with the exact published Legacy core
+      - name: Install the verified published Legacy compile API
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mkdir -p provided
           gh release download v4.1.63 --repo wickidcow/Slimefun-Legacy --pattern Slimefun-Legacy4.1.63.jar --dir provided
           echo '993b257c54efe19b58cc8f4946d4d39387f7787fe263c9f27123343159344c42  provided/Slimefun-Legacy4.1.63.jar' | sha256sum -c -
           mvn -B -ntp install:install-file -Dfile=provided/Slimefun-Legacy4.1.63.jar -DgroupId=io.github.wickidcow.verified -DartifactId=Slimefun4 -Dversion=4.1.63 -Dpackaging=jar -DgeneratePom=true
+      - name: Full exact-Legacy builds and tests across Paper APIs
+        run: |
+          set -euo pipefail
+          for API in 1.21.11-R0.1-SNAPSHOT 26.2.build.129-stable 26.3-rc-3.build.1-alpha; do
+            mvn -B -ntp -f candidate/pom.xml clean verify -Dpaper.version="$API" -Dslimefun.groupId=io.github.wickidcow.verified -Dslimefun.version=4.1.63 2>&1 | tee "evidence/build-$API.log"
+            mkdir -p "evidence/tests-$API"
+            cp candidate/target/surefire-reports/TEST-*.xml "evidence/tests-$API/"
+          done
           mvn -B -ntp -f candidate/pom.xml clean verify -Dslimefun.groupId=io.github.wickidcow.verified -Dslimefun.version=4.1.63 2>&1 | tee evidence/build-exact-legacy.log
           mkdir -p evidence/tests-exact-legacy
           cp candidate/target/surefire-reports/TEST-*.xml evidence/tests-exact-legacy/
           cp candidate/target/SF_FluffyMachines26.2.13.jar dist/
-      - name: Validate actual test reports and packaged classes
+      - name: Verify actual reports and Java 21 distributable
         run: |
           python3 - <<'PY'
           import json,pathlib,struct,zipfile,xml.etree.ElementTree as ET
@@ -96,7 +93,7 @@ jobs:
               assert classes>0
           pathlib.Path('evidence/test-results.json').write_text(json.dumps({'lanes':results,'java21_classes':classes},indent=2)+'\n')
           PY
-      - name: Retain verified source blobs without moving release refs
+      - name: Retain verified source blobs without changing release refs
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -107,10 +104,10 @@ jobs:
           with zipfile.ZipFile('evidence/verified-source.zip','w',zipfile.ZIP_DEFLATED) as z:
               for name,wanted in meta['files'].items():
                   b=(pathlib.Path('candidate')/name).read_bytes();sha=hashlib.sha1(b'blob '+str(len(b)).encode()+b'\0'+b).hexdigest();assert sha==wanted,(name,sha)
-                  result=subprocess.run(['gh','api','--method','POST','repos/'+repo+'/git/blobs','--input','-'],input=json.dumps({'content':base64.b64encode(b).decode(),'encoding':'base64'}),text=True,capture_output=True,check=True)
-                  assert json.loads(result.stdout)['sha']==wanted
+                  r=subprocess.run(['gh','api','--method','POST','repos/'+repo+'/git/blobs','--input','-'],input=json.dumps({'content':base64.b64encode(b).decode(),'encoding':'base64'}),text=True,capture_output=True,check=True)
+                  assert json.loads(r.stdout)['sha']==wanted
                   z.writestr(name,b)
-          jar=pathlib.Path('dist/SF_FluffyMachines26.2.13.jar');meta['jar_sha256']=hashlib.sha256(jar.read_bytes()).hexdigest()
+          meta['jar_sha256']=hashlib.sha256(pathlib.Path('dist/SF_FluffyMachines26.2.13.jar').read_bytes()).hexdigest()
           pathlib.Path('evidence/candidate-blobs.json').write_text(json.dumps(meta,indent=2)+'\n')
           PY
       - uses: actions/upload-artifact@v7
