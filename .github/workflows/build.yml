@@ -13,8 +13,8 @@ permissions:
   contents: write
 
 env:
-  LEGACY_ARTIFACT_VERSION: "26.2.13"
-  OUTPUT_NAME: "SF_FluffyMachines26.2.13.jar"
+  LEGACY_ARTIFACT_VERSION: "26.2.14"
+  OUTPUT_NAME: "SF_FluffyMachines26.2.14.jar"
 
 concurrency:
   group: fluffy-machines-${{ github.workflow }}-${{ github.ref }}
@@ -47,7 +47,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -Fq '<version>26.2.13</version>' pom.xml
+          grep -Fq '<version>26.2.14</version>' pom.xml
           grep -Fq '<maven.compiler.release>21</maven.compiler.release>' pom.xml
           grep -Fq '<paper.version>1.21.11-R0.1-SNAPSHOT</paper.version>' pom.xml
           grep -Fq '<finalName>SF_FluffyMachines${project.version}</finalName>' pom.xml
@@ -110,9 +110,9 @@ jobs:
           set -euo pipefail
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then TAG="$GITHUB_REF_NAME"; else TAG="v${LEGACY_ARTIFACT_VERSION}"; fi
           JAR="dist/${OUTPUT_NAME}"
-          NOTES="FluffyMachines 26.2.13 adds Paper 26.3 alpha compatibility validation while preserving the Java 21 universal release, the Paper 1.21.11 baseline, and Paper 26.2 as the primary production target. The Maven build now emits ${OUTPUT_NAME} directly without legacy or English suffixes."
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$JAR" --clobber
+          NOTES="FluffyMachines 26.2.14 refreshes auto-crafter positive and negative recipe results when the provider recipe count changes, and releases cached templates when the grid is emptied. Existing crafting rules, energy use, item identities, saved state, and the 26.2.13 barrel fixes are retained. Minecraft 1.21.11 and Java 21 remain the runtime floor."
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$JAR" --repo "$GITHUB_REPOSITORY" --clobber
           else
-            gh release create "$TAG" "$JAR" --target "$GITHUB_SHA" --title "SF_FluffyMachines $TAG" --notes "$NOTES"
+            gh release create "$TAG" "$JAR" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "SF_FluffyMachines $TAG" --notes "$NOTES"
           fi
