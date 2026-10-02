@@ -1,0 +1,66 @@
+name: Audit Fluffy AutoCrafter Cache
+on:
+  push:
+    branches: ['audit/fluffy-crafter-cache-20261001']
+permissions:
+  contents: write
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+      - name: Stage inspected source and verified compile-only core
+        run: |
+          set -euo pipefail
+          python3 .audit/stage_crafter.py
+          mkdir -p evidence dist
+          git diff > evidence/staged.patch
+          curl -fL --retry 3 --connect-timeout 20 --max-time 180 'https://github.com/wickidcow/Slimefun-Legacy/releases/download/v4.1.64/Slimefun-Legacy4.1.64.jar' -o core.jar
+          echo '316b308139e90981ed037d82ddc57b62b354d8e0a41804d5ebf3bb2b8f896d80  core.jar' | sha256sum -c -
+          mvn -B -ntp install:install-file -Dfile=core.jar -DgroupId=com.github.wickidcow -DartifactId=Slimefun-Legacy -Dversion=4.1.64 -Dpackaging=jar -DgeneratePom=true
+      - name: Full project tests and baseline distributable
+        run: |
+          set -euo pipefail
+          for API in 26.2.build.123-stable 26.3-rc-3.build.1-alpha 1.21.11-R0.1-SNAPSHOT; do
+            mvn -B -ntp clean verify -Dpaper.version="$API" -Dslimefun.groupId=com.github.wickidcow -Dslimefun.artifactId=Slimefun-Legacy -Dslimefun.version=4.1.64 2>&1 | tee "evidence/build-$API.log"
+            mkdir -p "evidence/tests-$API"
+            cp target/surefire-reports/TEST-*.xml "evidence/tests-$API/"
+          done
+          cp target/SF_FluffyMachines26.2.14.jar dist/
+          python3 scripts/verify_doctor_migration.py .
+          sha256sum dist/*.jar > evidence/SHA256SUMS
+      - name: Export exact reviewed blobs without updating a branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import hashlib,json,subprocess
+          from pathlib import Path
+          files=['src/main/java/io/ncbpfluffybear/fluffymachines/objects/AutoCrafter.java','src/main/java/io/ncbpfluffybear/fluffymachines/objects/RecipeIndexCache.java','src/test/java/io/ncbpfluffybear/fluffymachines/objects/RecipeIndexCacheTest.java','pom.xml','.github/workflows/build.yml']
+          rows=[]
+          for file in files:
+              b=Path(file).read_bytes()
+              sha=hashlib.sha1(b'blob '+str(len(b)).encode()+b'\0'+b).hexdigest()
+              result=json.loads(subprocess.check_output(['gh','api','--method','POST','repos/wickidcow/SF_FluffyMachines/git/blobs','--input','-'],input=json.dumps({'content':b.decode(),'encoding':'utf-8'}).encode()))
+              assert result['sha']==sha
+              rows.append({'path':file,'mode':'100644','type':'blob','sha':sha})
+              p=Path('evidence/source')/file;p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(b)
+          Path('evidence/tree-elements.json').write_text(json.dumps(rows,indent=2))
+          PY
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: fluffy-crafter-cache-audit
+          path: |
+            evidence/
+            dist/
+          if-no-files-found: error
