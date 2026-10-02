@@ -38,7 +38,6 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
 
@@ -55,10 +54,8 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
     private final String machineName;
     private final Material material;
     private final MultiBlockMachine mblock;
-    private final Map<String, CachedRecipe> recipeCache = new ConcurrentHashMap<>();
-    private final Object recipeIndexLock = new Object();
-    private volatile Map<Integer, List<IndexedRecipe>> recipeShapeIndex = Map.of();
-    private volatile int indexedRecipeStorageSize = -1;
+    private final RecipeIndexCache<Map<Integer, List<IndexedRecipe>>, CachedRecipe> recipeCache =
+        new RecipeIndexCache<>(this::getRecipeStorageSize, this::buildRecipeIndex);
 
     public AutoCrafter(ItemGroup category, SlimefunItemStack item, RecipeType recipeType, ItemStack[] recipe, String displayName, Material material, String machineName, RecipeType machineRecipes) {
         super(category, item, recipeType, recipe);
@@ -194,7 +191,7 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
     private void clearRecipeCache(Location location) {
         SlimefunBlockData blockData = StorageCacheUtils.getBlock(location);
         if (blockData != null) {
-            recipeCache.remove(blockData.getKey());
+            recipeCache.invalidate(blockData.getKey());
         }
     }
 
@@ -288,6 +285,7 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
         }
 
         if (isInputGridEmpty(menu)) {
+            recipeCache.invalidate(blockData.getKey());
             if (!String.valueOf(true).equals(blockData.getData(SINGLE_CRAFT_READY))) {
                 blockData.setData(SINGLE_CRAFT_READY, String.valueOf(true));
             }
@@ -313,7 +311,11 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
 
         boolean singleCraftReady = Boolean.parseBoolean(blockData.getData(SINGLE_CRAFT_READY));
         String blockKey = blockData.getKey();
-        CachedRecipe cachedRecipe = recipeCache.get(blockKey);
+        // Refresh the index before consulting either positive or negative results.
+        // Each resolver retains its own generation, so an old resolver cannot
+        // put stale results back into the newly published cache.
+        var generation = recipeCache.current();
+        CachedRecipe cachedRecipe = generation.results.get(blockKey);
         RecipeMatch match = RecipeMatch.NONE;
 
         if (cachedRecipe != null) {
@@ -332,7 +334,7 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
             }
         }
 
-        cachedRecipe = resolveRecipe(blockKey, menu);
+        cachedRecipe = resolveRecipe(blockKey, menu, generation);
         if (!cachedRecipe.hasRecipe()) {
             return;
         }
@@ -361,11 +363,12 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
         removeCharge(location, getEnergyConsumption());
     }
 
-    private CachedRecipe resolveRecipe(String blockKey, BlockMenu menu) {
+    private CachedRecipe resolveRecipe(String blockKey, BlockMenu menu,
+            RecipeIndexCache.Generation<Map<Integer, List<IndexedRecipe>>, CachedRecipe> generation) {
         ItemStack[] template = snapshotTemplate(menu);
         int shape = getShape(template);
 
-        for (IndexedRecipe recipe : getRecipeCandidates(shape)) {
+        for (IndexedRecipe recipe : generation.index.getOrDefault(shape, List.of())) {
             if (!matchesRecipeTemplate(menu, recipe.input)) {
                 continue;
             }
@@ -375,53 +378,39 @@ public class AutoCrafter extends SlimefunItem implements EnergyNetComponent {
                 recipe.input,
                 recipe.output == null ? null : recipe.output.clone()
             );
-            recipeCache.put(blockKey, resolved);
+            generation.results.put(blockKey, resolved);
             return resolved;
         }
 
         CachedRecipe noMatch = new CachedRecipe(template, null, null);
-        recipeCache.put(blockKey, noMatch);
+        generation.results.put(blockKey, noMatch);
         return noMatch;
     }
 
-    private List<IndexedRecipe> getRecipeCandidates(int shape) {
-        ensureRecipeIndex();
-        return recipeShapeIndex.getOrDefault(shape, List.of());
+    private int getRecipeStorageSize() {
+        return mblock.getRecipes().size();
     }
 
-    private void ensureRecipeIndex() {
+    private Map<Integer, List<IndexedRecipe>> buildRecipeIndex() {
         List<ItemStack[]> recipeStorage = mblock.getRecipes();
         int storageSize = recipeStorage.size();
-        if (storageSize == indexedRecipeStorageSize) {
-            return;
+    Map<Integer, List<IndexedRecipe>> newIndex = new HashMap<>();
+    for (int i = 0; i + 1 < storageSize; i += 2) {
+        ItemStack[] input = recipeStorage.get(i);
+        if (input == null || input.length != getInputSlots().length) {
+            continue;
         }
 
-        synchronized (recipeIndexLock) {
-            recipeStorage = mblock.getRecipes();
-            storageSize = recipeStorage.size();
-            if (storageSize == indexedRecipeStorageSize) {
-                return;
-            }
+        ItemStack[] outputEntry = recipeStorage.get(i + 1);
+        ItemStack output = outputEntry != null && outputEntry.length > 0 ? outputEntry[0] : null;
+        int shape = getShape(input);
+        newIndex.computeIfAbsent(shape, ignored -> new ArrayList<>())
+            .add(new IndexedRecipe(input, output));
+    }
 
-            Map<Integer, List<IndexedRecipe>> newIndex = new HashMap<>();
-            for (int i = 0; i + 1 < storageSize; i += 2) {
-                ItemStack[] input = recipeStorage.get(i);
-                if (input == null || input.length != getInputSlots().length) {
-                    continue;
-                }
-
-                ItemStack[] outputEntry = recipeStorage.get(i + 1);
-                ItemStack output = outputEntry != null && outputEntry.length > 0 ? outputEntry[0] : null;
-                int shape = getShape(input);
-                newIndex.computeIfAbsent(shape, ignored -> new ArrayList<>())
-                    .add(new IndexedRecipe(input, output));
-            }
-
-            Map<Integer, List<IndexedRecipe>> immutableIndex = new HashMap<>();
-            newIndex.forEach((shape, recipes) -> immutableIndex.put(shape, List.copyOf(recipes)));
-            recipeShapeIndex = Map.copyOf(immutableIndex);
-            indexedRecipeStorageSize = storageSize;
-        }
+    Map<Integer, List<IndexedRecipe>> immutableIndex = new HashMap<>();
+    newIndex.forEach((shape, recipes) -> immutableIndex.put(shape, List.copyOf(recipes)));
+        return Map.copyOf(immutableIndex);
     }
 
     private int getShape(ItemStack[] items) {
