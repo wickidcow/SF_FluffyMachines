@@ -6,6 +6,7 @@ import com.google.gson.reflect.TypeToken;
 import com.xzavier0722.mc.plugin.slimefun4.storage.controller.BlockDataController;
 import com.xzavier0722.mc.plugin.slimefun4.storage.controller.ProfileDataController;
 import com.xzavier0722.mc.plugin.slimefun4.storage.controller.SlimefunBlockData;
+import com.xzavier0722.mc.plugin.slimefun4.storage.util.LocationUtils;
 import com.xzavier0722.mc.plugin.slimefun4.storage.util.StorageCacheUtils;
 import io.github.thebusybiscuit.slimefun4.api.items.SlimefunItem;
 import io.github.thebusybiscuit.slimefun4.api.player.PlayerBackpack;
@@ -390,11 +391,21 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
             return blocks.saveBlockInventoryAsync(m.data).thenCompose(v -> ownerCompose(() -> gated(m, 1, () -> {
                 int cx = m.location.getBlockX() >> 4;
                 int cz = m.location.getBlockZ() >> 4;
-                world.getChunkAt(cx, cz).removePluginChunkTicket(this);
-                if (!world.unloadChunk(cx, cz, true)) throw new IllegalStateException("Fixture chunk refused unload");
+                String chunkKey = LocationUtils.getChunkKey(m.location);
+                if (blocks.getAllLoadedChunkData().stream().noneMatch(c -> c.getKey().equals(chunkKey)))
+                    throw new IllegalStateException("Fixture chunk cache was absent before unload: " + chunkKey);
+                world.removePluginChunkTicket(cx, cz, this);
+                if (world.getPluginChunkTickets(cx, cz).contains(this))
+                    throw new IllegalStateException("Fixture chunk ticket was not removed");
+                world.unloadChunkRequest(cx, cz);
                 return waitUntil(() -> !world.isChunkLoaded(cx, cz)
-                        && blocks.getAllLoadedChunkData().stream().noneMatch(c -> c.getKey().equals(chunkKey(m))), 160)
-                        .thenCompose(done -> reloadBeforeRelease ? ownerCompose(() -> reloadMenu(m)) : CompletableFuture.completedFuture(null));
+                        && blocks.getAllLoadedChunkData().stream().noneMatch(c -> c.getKey().equals(chunkKey)), 160)
+                        .thenCompose(done -> reloadBeforeRelease ? ownerCompose(() -> reloadMenu(m)
+                                .thenCompose(loaded -> owner(() -> {
+                                    if (blocks.getBlockData(m.location).getBlockMenu() == m.menu)
+                                        throw new IllegalStateException("Fixture reload did not replace the authoritative menu");
+                                    return (Void) null;
+                                }))) : CompletableFuture.completedFuture(null));
             }))).thenCompose(v -> ownerCompose(() -> {
                 Check check = new Check();
                 check.items(before, a.backpack.getInventory().getContents(), "callback after confirmed eviction leaves backpack unchanged");
@@ -405,6 +416,7 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                     if (loader) check.item(payload, reloaded.getItemInSlot(10), "authoritative Loader source retained");
                     else check.that(countSlots(reloaded, UNLOADER_OUTPUTS) == 0, "authoritative Unloader output retained");
                     check.item(a.item, reloaded.getItemInSlot(loader ? 45 : 0), "backpack item identity survived eviction/reload");
+                    check.that(m.energy.getChargeLong(m.location) == 16, "authoritative machine energy survives the cancelled callback");
                     check.note("Both actual world unload and controller-cache eviction were observed before callback release.");
                     if (reloadBeforeRelease) check.note("A distinct live menu at the same location was loaded before the stale callback was released.");
                     return check;
@@ -500,7 +512,9 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
 
     private Machine machine(boolean loader) {
         fixtureNumber++;
-        Location location = new Location(world, 1536 + fixtureNumber * 32, 64, 1536);
+        // Leave eight chunks between fixtures so another fixture's real plugin
+        // region ticket cannot keep an eviction target loaded through its neighbors.
+        Location location = new Location(world, 1536 + fixtureNumber * 128, 64, 1536);
         Chunk chunk = holdChunk(location);
         blocks.getChunkData(chunk);
         SlimefunItem item = SlimefunItem.getById(loader ? "BACKPACK_LOADER" : "BACKPACK_UNLOADER");
@@ -630,7 +644,6 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
         return item;
     }
 
-    private static String chunkKey(Machine m) { return m.location.getWorld().getName() + ";" + (m.location.getBlockX() >> 4) + ";" + (m.location.getBlockZ() >> 4); }
     private static ItemStack nativeCopy(ItemStack item) { return ItemStack.deserializeBytes(item.serializeAsBytes()); }
     private static ItemStack[] copy(ItemStack[] items) { return Arrays.stream(items).map(i -> i == null ? null : i.clone()).toArray(ItemStack[]::new); }
     private static boolean empty(ItemStack item) { return item == null || item.getType().isAir() || item.getAmount() == 0; }
