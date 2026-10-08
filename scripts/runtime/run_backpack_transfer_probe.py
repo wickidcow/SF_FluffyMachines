@@ -132,6 +132,9 @@ def server_cycle(work: Path, java: Path, label: str, action: str | None, timeout
     result_path = work / "plugins" / "FluffyBackpackProbe" / f"{action}-result.json" if action else None
     if result_path and result_path.exists():
         raise RuntimeError(f"Refusing stale phase evidence: {result_path}")
+    metrics_config = work / "plugins" / "bStats" / "config.yml"
+    if not metrics_config.is_file() or not re.search(r"(?m)^enabled:\s*false\s*$", metrics_config.read_text(encoding="utf-8")):
+        raise RuntimeError("Disposable native runs require bStats telemetry disabled before every server boot")
     command = [str(java), *java_proxy_arguments(), "-Xms512M", "-Xmx1536M", "-jar", "server.jar", "--nogui"]
     print(f"[{label}] Starting a disposable Paper process", flush=True)
     with log_path.open("w", encoding="utf-8") as log:
@@ -213,6 +216,9 @@ def server_cycle(work: Path, java: Path, label: str, action: str | None, timeout
             if process.stdin:
                 process.stdin.close()
     evidence = {"label": label, "log": str(log_path), "log_sha256": digest(log_path), "exit_code": 0}
+    if not re.search(r"(?m)^enabled:\s*false\s*$", metrics_config.read_text(encoding="utf-8")):
+        raise RuntimeError("The disposable bStats telemetry setting changed during the server phase")
+    evidence["bstats_enabled"] = False
     evidence["log_checks"] = inspect_log(log_path)
     if result_path:
         evidence["result"] = json.loads(result_path.read_text(encoding="utf-8"))
@@ -247,11 +253,15 @@ def main() -> int:
     work.mkdir(parents=True)
     (work / "evidence").mkdir()
     (work / "plugins").mkdir()
+    metrics_config = work / "plugins" / "bStats" / "config.yml"
+    metrics_config.parent.mkdir()
+    metrics_config.write_text(
+        "enabled: false\nlogFailedRequests: false\nlogSentData: false\nlogResponseStatusText: false\n", encoding="utf-8")
     shutil.copy2(supplied["paper"]["path"], work / "server.jar")
     manifest = {"schema": 1, "expected_mode": args.expect, "inputs": supplied,
                 "java_version": subprocess.check_output([str(java), "-version"], stderr=subprocess.STDOUT, text=True),
                 "scope": "Disposable real Paper inventories, registered addon tickers and core persistence; no connected player or Folia claim",
-                "phases": [], "result": "INCOMPLETE"}
+                "phases": [], "result": "INCOMPLETE", "bstats_enabled_before_first_boot": False}
     manifest_path = work / "evidence" / "manifest.json"
     atexit.register(lambda: manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8"))
     if args.runtime_template:

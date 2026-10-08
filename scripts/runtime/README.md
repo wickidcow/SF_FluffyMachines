@@ -49,7 +49,9 @@ optionally, `--javac`. `--timeout` bounds each server-start and probe phase.
 
 The runner binds the server to a loopback address on an available port, creates
 an offline flat test world, accepts the server EULA for that disposable process,
-and disables plugin updates. Block storage is explicitly SQLite with
+and disables plugin updates. Global bStats telemetry is disabled through its
+normal `plugins/bStats/config.yml` before the first bootstrap and verified before
+and after every server phase. Block storage is explicitly SQLite with
 `LOAD_WITH_CHUNK`. Existing credentials-free environment HTTP proxies and the
 existing system Java truststore are honored where available; certificate
 verification remains enabled.
@@ -77,7 +79,11 @@ registered machine tickers declaring synchronized execution.
 Fixtures use named native offline players, real Bukkit inventories, actual core
 profile/block persistence and native item serialization. Payloads include display
 names, lore, string PDC and a 64-bit PDC value above JavaScript's exact-integer
-range. No connected player is needed. Ambient Loader/Unloader ticking is paused
+range. No connected player is needed. Real plugin chunk tickets hold ordinary
+fixtures loaded; eviction cases release the ticket before requesting unload.
+The core's initial chunk load completes before a machine is created, and each
+first callback-dependent operation must actually enqueue behind the controlled
+core executor before its mutation is applied. Ambient Loader/Unloader ticking is paused
 so each explicitly invoked production tick is accounted for. Successful saves
 are awaited; cancellation checks also compare the core's acknowledged snapshot
 identity. A callback-gate timeout fails the scenario rather than establishing an

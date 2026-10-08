@@ -22,18 +22,22 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Bukkit;
+import org.bukkit.Chunk;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
@@ -55,6 +59,7 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
     private final List<Map<String, Object>> results = new ArrayList<>();
     private final List<Map<String, Object>> restartFixtures = new ArrayList<>();
     private final List<Gate> gates = new ArrayList<>();
+    private final Set<String> firstTickLocations = new HashSet<>();
     private BlockDataController blocks;
     private ProfileDataController profiles;
     private World world;
@@ -69,6 +74,7 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
     @Override
     public void onDisable() {
         for (Gate gate : gates) gate.release.complete(null);
+        for (World loadedWorld : Bukkit.getWorlds()) loadedWorld.removePluginChunkTickets(this);
     }
 
     @Override
@@ -193,7 +199,7 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
             int target = loader ? (kind.equals("bound") ? 45 : 53) : UNLOADER_OUTPUTS[0];
             m.menu.replaceExistingItem(source, physical.clone());
             if (full) m.menu.replaceExistingItem(10, payload.clone());
-            return gated(m, 1, () -> CompletableFuture.completedFuture(null)).thenCompose(v -> owner(() -> {
+            return gated(m, 1, () -> CompletableFuture.completedFuture(null), kind.equals("full") || kind.equals("empty")).thenCompose(v -> owner(() -> {
                 Check check = new Check();
                 check.that(empty(m.menu.getItemInSlot(source)), "routed backpack leaves source slot");
                 check.item(physical, m.menu.getItemInSlot(target), "physical backpack identity and metadata survive routing");
@@ -384,6 +390,7 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
             return blocks.saveBlockInventoryAsync(m.data).thenCompose(v -> ownerCompose(() -> gated(m, 1, () -> {
                 int cx = m.location.getBlockX() >> 4;
                 int cz = m.location.getBlockZ() >> 4;
+                world.getChunkAt(cx, cz).removePluginChunkTicket(this);
                 if (!world.unloadChunk(cx, cz, true)) throw new IllegalStateException("Fixture chunk refused unload");
                 return waitUntil(() -> !world.isChunkLoaded(cx, cz)
                         && blocks.getAllLoadedChunkData().stream().noneMatch(c -> c.getKey().equals(chunkKey(m))), 160)
@@ -407,7 +414,7 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
     }
 
     private CompletableFuture<Void> reloadMenu(Machine m) {
-        world.getChunkAt(m.location.getBlockX() >> 4, m.location.getBlockZ() >> 4);
+        holdChunk(m.location);
         return waitUntil(() -> {
             SlimefunBlockData live = blocks.getBlockData(m.location);
             if (live == null) return false;
@@ -417,6 +424,12 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
     }
 
     private CompletableFuture<Void> gated(Machine machine, int ticks, Supplier<CompletableFuture<Void>> mutation) {
+        return gated(machine, ticks, mutation, true);
+    }
+
+    private CompletableFuture<Void> gated(Machine machine, int ticks, Supplier<CompletableFuture<Void>> mutation,
+            boolean expectsCallback) {
+        boolean firstTick = firstTickLocations.add(machine.data.getKey());
         Gate gate = new Gate();
         gates.add(gate);
         profiles.getCallbackExecutor().execute(() -> {
@@ -424,8 +437,21 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
             gate.release.orTimeout(30, TimeUnit.SECONDS).join();
         });
         return gate.entered.thenCompose(v -> ownerCompose(() -> {
+            if (firstTick && (!world.isChunkLoaded(machine.location.getBlockX() >> 4, machine.location.getBlockZ() >> 4)
+                    || !machine.data.isDataLoaded() || machine.data.isPendingRemove()
+                    || StorageCacheUtils.getMenu(machine.location) != machine.menu
+                    || machine.energy.getChargeLong(machine.location) < 16))
+                throw new IllegalStateException("Initial machine fixture is not a live, loaded, charged authoritative menu");
+            if (!(profiles.getCallbackExecutor() instanceof ThreadPoolExecutor callbackExecutor))
+                throw new IllegalStateException("Cannot observe the actual core callback executor queue");
+            int queuedBefore = callbackExecutor.getQueue().size();
             for (int i = 0; i < ticks; i++) machine.item.getBlockTicker().tick(machine.block, machine.item, machine.data);
-            return mutation.get();
+            // A first operation that depends on a backpack must demonstrably reach
+            // getAsync before we alter its input or lifecycle. Recovery ticks in
+            // the negative control may legitimately be out of energy already.
+            return (firstTick && expectsCallback
+                    ? waitUntil(() -> callbackExecutor.getQueue().size() >= queuedBefore + ticks, 100)
+                    : CompletableFuture.<Void>completedFuture(null)).thenCompose(done -> ownerCompose(mutation));
         })).whenComplete((v, failure) -> gate.release.complete(null))
                 .thenCompose(v -> gate.release)
                 .thenCompose(v -> {
@@ -475,6 +501,8 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
     private Machine machine(boolean loader) {
         fixtureNumber++;
         Location location = new Location(world, 1536 + fixtureNumber * 32, 64, 1536);
+        Chunk chunk = holdChunk(location);
+        blocks.getChunkData(chunk);
         SlimefunItem item = SlimefunItem.getById(loader ? "BACKPACK_LOADER" : "BACKPACK_UNLOADER");
         if (loader && !(item instanceof BackpackLoader) || !loader && !(item instanceof BackpackUnloader))
             throw new IllegalStateException("Actual production machine registration unavailable");
@@ -485,7 +513,17 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
         if (menu == null || !data.isDataLoaded()) throw new IllegalStateException("Machine fixture menu unavailable");
         EnergyNetComponent energy = (EnergyNetComponent) item;
         energy.setCharge(location, 16L);
+        if (energy.getChargeLong(location) != 16)
+            throw new IllegalStateException("Fixture energy did not initialize to16");
         return new Machine(item, energy, block, location, data, menu, loader);
+    }
+
+    private Chunk holdChunk(Location location) {
+        Chunk chunk = world.getChunkAt(location.getBlockX() >> 4, location.getBlockZ() >> 4);
+        chunk.addPluginChunkTicket(this);
+        if (!chunk.getPluginChunkTickets().contains(this))
+            throw new IllegalStateException("Could not hold the native fixture chunk loaded");
+        return chunk;
     }
 
     private CompletableFuture<Void> readChecks() {
@@ -505,7 +543,7 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                         if (backpack == null) throw new IllegalStateException("Restart backpack is missing");
                         Location location = new Location(world, ((Number) fixture.get("x")).intValue(),
                                 ((Number) fixture.get("y")).intValue(), ((Number) fixture.get("z")).intValue());
-                        world.getChunkAt(location.getBlockX() >> 4, location.getBlockZ() >> 4);
+                        holdChunk(location);
                         SlimefunBlockData data = blocks.getBlockData(location);
                         if (data == null) throw new IllegalStateException("Restart machine is missing");
                         if (!data.isDataLoaded()) blocks.loadBlockData(data);
