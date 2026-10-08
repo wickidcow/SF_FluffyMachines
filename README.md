@@ -5,7 +5,7 @@
 **Automation machines, portable tools, storage, Cargo utilities, travel, and multiblocks.**
 
 ![Slimefun Legacy](https://img.shields.io/badge/Slimefun-Legacy-6bd425?style=for-the-badge)
-![Paper 26.2+](https://img.shields.io/badge/Paper-26.2%2B-blue?style=for-the-badge)
+![Paper 1.21.11+](https://img.shields.io/badge/Paper-1.21.11%2B-blue?style=for-the-badge)
 ![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue?style=for-the-badge)
 ![Maintained for AlbionMC.com](https://img.shields.io/badge/Maintained%20for-albionmc.com-7b68ee?style=for-the-badge)
 
@@ -40,6 +40,7 @@ This branch keeps the addon English-first and maintains it for modern Paper/Slim
 - safe backing-backpack cleanup only after successful placement;
 - main-thread-safe Bukkit inventory mutations;
 - Backpack Unloader output-capacity safety;
+- Backpack Loader/Unloader checks for stale callbacks, changed inputs and current energy before transfers;
 - Fluffy Barrel metadata matching repairs;
 - newer Auto Ancient Altar broken-spawner handling;
 - Portable Charger self-charging protection;
@@ -49,6 +50,8 @@ This branch keeps the addon English-first and maintains it for modern Paper/Slim
 - preservation of existing Slimefun IDs and plugin identity wherever practical.
 
 See `PATCH_NOTES.md` and `VALIDATION.md` for deeper technical history and testing notes.
+
+Current maintenance release: [26.2.15 — Backpack Transfer Lifecycle](docs/releases/26.2.15.md). The runtime floor is Minecraft 1.21.11 with Java 21 bytecode; builds also check the 26.2 and 26.3 APIs.
 
 ## ❤️ Credits & project lineage
 

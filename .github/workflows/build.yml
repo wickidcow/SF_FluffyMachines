@@ -13,8 +13,8 @@ permissions:
   contents: write
 
 env:
-  LEGACY_ARTIFACT_VERSION: "26.2.14"
-  OUTPUT_NAME: "SF_FluffyMachines26.2.14.jar"
+  LEGACY_ARTIFACT_VERSION: "26.2.15"
+  OUTPUT_NAME: "SF_FluffyMachines26.2.15.jar"
 
 concurrency:
   group: fluffy-machines-${{ github.workflow }}-${{ github.ref }}
@@ -47,7 +47,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -Fq '<version>26.2.14</version>' pom.xml
+          grep -Fq '<version>26.2.15</version>' pom.xml
           grep -Fq '<maven.compiler.release>21</maven.compiler.release>' pom.xml
           grep -Fq '<paper.version>1.21.11-R0.1-SNAPSHOT</paper.version>' pom.xml
           grep -Fq '<finalName>SF_FluffyMachines${project.version}</finalName>' pom.xml
@@ -64,7 +64,7 @@ jobs:
       - name: Verify Paper 26.2 compile compatibility
         run: >-
           mvn -B clean verify --file pom.xml
-          "-Dpaper.version=[26.2.build,26.3)"
+          -Dpaper.version=26.2.build.132-stable
           -Dslimefun.groupId=com.github.slimefun
           -Dslimefun.artifactId=Slimefun
           -Dslimefun.version=ALBION-SNAPSHOT
@@ -82,6 +82,42 @@ jobs:
           -Dslimefun.groupId=com.github.slimefun
           -Dslimefun.artifactId=Slimefun
           -Dslimefun.version=ALBION-SNAPSHOT
+      - name: Prepare pinned native backpack regression inputs
+        run: python3 scripts/runtime/prepare_backpack_probe_inputs.py --out .native-inputs
+      - name: Verify native backpack transfers and restart persistence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+
+          inputs = json.loads(Path('.native-inputs/inputs.json').read_text())
+          if inputs.get('result') != 'PASS' or set(inputs['paper']) != {'1.21.11', '26.2', '26.3'}:
+              raise SystemExit('All three verified native runtime inputs are required')
+          for version in ('1.21.11', '26.2', '26.3'):
+              subprocess.run([
+                  'python3', 'scripts/runtime/run_backpack_transfer_probe.py',
+                  '--paper', inputs['paper'][version]['path'],
+                  '--core', inputs['core']['path'],
+                  '--addon', str(Path('target') / os.environ['OUTPUT_NAME']),
+                  '--work-dir', str(Path('.native-backpacks') / version),
+                  '--java', str(Path(os.environ['JAVA_HOME']) / 'bin/java'),
+                  '--expect', 'fixed',
+              ], check=True)
+          PY
+      - name: Upload native backpack regression evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-backpack-transfer-reports
+          path: |
+            .native-inputs/inputs.json
+            .native-backpacks/*/evidence/*
+          include-hidden-files: true
+          if-no-files-found: warn
       - name: Stage and verify versioned JAR
         shell: bash
         run: |
@@ -110,7 +146,7 @@ jobs:
           set -euo pipefail
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then TAG="$GITHUB_REF_NAME"; else TAG="v${LEGACY_ARTIFACT_VERSION}"; fi
           JAR="dist/${OUTPUT_NAME}"
-          NOTES="FluffyMachines 26.2.14 refreshes auto-crafter positive and negative recipe results when the provider recipe count changes, and releases cached templates when the grid is emptied. Existing crafting rules, energy use, item identities, saved state, and the 26.2.13 barrel fixes are retained. Minecraft 1.21.11 and Java 21 remain the runtime floor."
+          NOTES="FluffyMachines 26.2.15 revalidates the installed backpack, current machine, input eligibility and available energy before delayed Backpack Loader/Unloader transfers. Stale callbacks cancel safely, blocked outputs retain their source items, and initial inventory handling runs on the server thread. Existing item identities, metadata, saved formats, slot order and normal one-stack/16-energy behavior are preserved. Minecraft 1.21.11 and Java 21 remain the runtime floor."
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$TAG" "$JAR" --repo "$GITHUB_REPOSITORY" --clobber
           else

@@ -101,7 +101,7 @@ public class BackpackLoader extends SlimefunItem implements EnergyNetComponent {
             }
 
             public boolean isSynchronized() {
-                return false;
+                return true;
             }
         });
     }
@@ -112,7 +112,7 @@ public class BackpackLoader extends SlimefunItem implements EnergyNetComponent {
         }
 
         final BlockMenu inv = StorageCacheUtils.getMenu(b.getLocation());
-        if (inv == null) {
+        if (inv == null || !BackpackTransferGuard.isCurrentMachine(inv, getId())) {
             return;
         }
 
@@ -132,28 +132,38 @@ public class BackpackLoader extends SlimefunItem implements EnergyNetComponent {
             }
         }
 
-        int occupiedInputSlot = 0;
+        int occupiedInputSlot = -1;
         for (int inputSlot : getInputSlots()) {
-            if (inv.getItemInSlot(inputSlot) != null
-                && !(SlimefunItem.getByItem(inv.getItemInSlot(inputSlot)) instanceof SlimefunBackpack)
-                && !Tag.SHULKER_BOXES.isTagged(inv.getItemInSlot(inputSlot).getType())) {
+            if (isLoadableInput(inv.getItemInSlot(inputSlot))) {
                 occupiedInputSlot = inputSlot;
                 break;
-            } else if (inputSlot == getInputSlots()[13]) {
-                return;
             }
+        }
+        if (occupiedInputSlot == -1) {
+            return;
         }
 
         ItemStack bpItem = inv.getItemInSlot(BACKPACK_SLOT);
         SlimefunItem sfItem = SlimefunItem.getByItem(bpItem);
         if (sfItem instanceof SlimefunBackpack) {
             int finalOccupiedInputSlot = occupiedInputSlot;
-            PlayerBackpack.getAsync(bpItem, backpack -> {
+            ItemStack expectedBackpack = bpItem.clone();
+            PlayerBackpack.getAsync(expectedBackpack, backpack -> {
                 if (backpack == null) {
                     return;
                 }
 
                 Utils.runSync(() -> {
+                    if (!BackpackTransferGuard.isCurrentBackpack(inv, getId(), BACKPACK_SLOT, expectedBackpack)
+                        || backpack.isInvalid() || getChargeLong(b.getLocation()) < ENERGY_CONSUMPTION) {
+                        return;
+                    }
+
+                    ItemStack transferItem = inv.getItemInSlot(finalOccupiedInputSlot);
+                    if (!isLoadableInput(transferItem)) {
+                        return;
+                    }
+
                     Inventory backpackInventory = backpack.getInventory();
                     int backpackSlot = backpackInventory.firstEmpty();
 
@@ -164,8 +174,7 @@ public class BackpackLoader extends SlimefunItem implements EnergyNetComponent {
                         return;
                     }
 
-                    ItemStack transferItem = inv.getItemInSlot(finalOccupiedInputSlot);
-                    if (transferItem == null || backpackInventory.getItem(backpackSlot) != null) {
+                    if (backpackInventory.getItem(backpackSlot) != null) {
                         return;
                     }
 
@@ -181,8 +190,16 @@ public class BackpackLoader extends SlimefunItem implements EnergyNetComponent {
 
     private void moveItem(BlockMenu inv, int slot1, int slot2) {
         ItemStack transferItem = inv.getItemInSlot(slot1);
-        inv.replaceExistingItem(slot1, null);
-        inv.pushItem(transferItem, slot2);
+        if (transferItem != null && inv.fits(transferItem, slot2)) {
+            ItemStack remainder = inv.pushItem(transferItem.clone(), slot2);
+            inv.replaceExistingItem(slot1, remainder);
+        }
+    }
+
+    private boolean isLoadableInput(ItemStack item) {
+        return item != null && !item.getType().isAir() && item.getAmount() > 0
+            && !(SlimefunItem.getByItem(item) instanceof SlimefunBackpack)
+            && !Tag.SHULKER_BOXES.isTagged(item.getType());
     }
 
     @Nonnull
