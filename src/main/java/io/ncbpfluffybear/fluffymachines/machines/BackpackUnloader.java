@@ -90,7 +90,7 @@ public class BackpackUnloader extends SlimefunItem implements EnergyNetComponent
             }
 
             public boolean isSynchronized() {
-                return false;
+                return true;
             }
         });
     }
@@ -101,7 +101,7 @@ public class BackpackUnloader extends SlimefunItem implements EnergyNetComponent
         }
 
         final BlockMenu inv = StorageCacheUtils.getMenu(b.getLocation());
-        if (inv == null) {
+        if (inv == null || !BackpackTransferGuard.isCurrentMachine(inv, getId())) {
             return;
         }
 
@@ -122,12 +122,18 @@ public class BackpackUnloader extends SlimefunItem implements EnergyNetComponent
                     return;
                 }
 
-                PlayerBackpack.getAsync(inputItem, backpack -> {
+                ItemStack expectedBackpack = inputItem.clone();
+                PlayerBackpack.getAsync(expectedBackpack, backpack -> {
                     if (backpack == null) {
                         return;
                     }
 
                     Utils.runSync(() -> {
+                        if (!BackpackTransferGuard.isCurrentBackpack(inv, getId(), getInputSlots()[0], expectedBackpack)
+                            || backpack.isInvalid() || getChargeLong(b.getLocation()) < ENERGY_CONSUMPTION) {
+                            return;
+                        }
+
                         Inventory backpackInventory = backpack.getInventory();
                         for (int slot = 0; slot < backpackInventory.getSize(); slot++) {
                             ItemStack transferItem = backpackInventory.getItem(slot);
@@ -136,8 +142,11 @@ public class BackpackUnloader extends SlimefunItem implements EnergyNetComponent
                                     return;
                                 }
 
-                                inv.pushItem(transferItem.clone(), getOutputSlots());
-                                backpackInventory.setItem(slot, null);
+                                ItemStack remainder = inv.pushItem(transferItem.clone(), getOutputSlots());
+                                if (remainder != null && remainder.getAmount() >= transferItem.getAmount()) {
+                                    return;
+                                }
+                                backpackInventory.setItem(slot, remainder);
                                 Slimefun.getDatabaseManager().getProfileDataController().saveBackpackInventory(backpack);
                                 removeCharge(b.getLocation(), ENERGY_CONSUMPTION);
                                 return;
@@ -155,8 +164,10 @@ public class BackpackUnloader extends SlimefunItem implements EnergyNetComponent
 
     private void rejectInput(BlockMenu inv) {
         ItemStack transferItem = inv.getItemInSlot(getInputSlots()[0]);
-        inv.replaceExistingItem(getInputSlots()[0], null);
-        inv.pushItem(transferItem, getOutputSlots());
+        if (transferItem != null && inv.fits(transferItem, getOutputSlots())) {
+            ItemStack remainder = inv.pushItem(transferItem.clone(), getOutputSlots());
+            inv.replaceExistingItem(getInputSlots()[0], remainder);
+        }
     }
 
     @Nonnull
