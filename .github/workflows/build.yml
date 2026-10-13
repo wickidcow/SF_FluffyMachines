@@ -13,8 +13,8 @@ permissions:
   contents: write
 
 env:
-  LEGACY_ARTIFACT_VERSION: "26.2.15"
-  OUTPUT_NAME: "SF_FluffyMachines26.2.15.jar"
+  LEGACY_ARTIFACT_VERSION: "26.2.16"
+  OUTPUT_NAME: "SF_FluffyMachines26.2.16.jar"
 
 concurrency:
   group: fluffy-machines-${{ github.workflow }}-${{ github.ref }}
@@ -47,7 +47,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -Fq '<version>26.2.15</version>' pom.xml
+          grep -Fq '<version>26.2.16</version>' pom.xml
           grep -Fq '<maven.compiler.release>21</maven.compiler.release>' pom.xml
           grep -Fq '<paper.version>1.21.11-R0.1-SNAPSHOT</paper.version>' pom.xml
           grep -Fq '<finalName>SF_FluffyMachines${project.version}</finalName>' pom.xml
@@ -68,10 +68,10 @@ jobs:
           -Dslimefun.groupId=com.github.slimefun
           -Dslimefun.artifactId=Slimefun
           -Dslimefun.version=ALBION-SNAPSHOT
-      - name: Verify Paper 26.3 alpha compile compatibility
+      - name: Verify Paper 26.3 stable compile compatibility
         run: >-
           mvn -B clean verify --file pom.xml
-          -Dpaper.version=26.3-rc-3.build.1-alpha
+          -Dpaper.version=26.3.build.176-stable
           -Dslimefun.groupId=com.github.slimefun
           -Dslimefun.artifactId=Slimefun
           -Dslimefun.version=ALBION-SNAPSHOT
@@ -146,7 +146,7 @@ jobs:
           set -euo pipefail
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then TAG="$GITHUB_REF_NAME"; else TAG="v${LEGACY_ARTIFACT_VERSION}"; fi
           JAR="dist/${OUTPUT_NAME}"
-          NOTES="FluffyMachines 26.2.15 revalidates the installed backpack, current machine, input eligibility and available energy before delayed Backpack Loader/Unloader transfers. Stale callbacks cancel safely, blocked outputs retain their source items, and initial inventory handling runs on the server thread. Existing item identities, metadata, saved formats, slot order and normal one-stack/16-energy behavior are preserved. Minecraft 1.21.11 and Java 21 remain the runtime floor."
+          NOTES="FluffyMachines 26.2.16 reduces per-tick cosmetic ItemDisplay work for Fluffy Barrels using a bounded 20-world-tick refresh deadline. Item deposit, withdrawal, output refill, metadata matching, and all storage counters continue on the original synchronized machine ticker. Restored empty-display cache entries are presentation-only and disappear on block removal/chunk unloading. Existing backpack protections, item IDs, persisted data, recipes, slots, holograms, and energy behavior remain unchanged. Supports Minecraft 1.21.11+ (including Paper 26.2/26.3); Java 21 runtime bytecode."
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$TAG" "$JAR" --repo "$GITHUB_REPOSITORY" --clobber
           else
