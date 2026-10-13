@@ -42,6 +42,8 @@ public final class BarrelDisplayManager {
 
     private static final Map<String, DisplayState> STATES = new ConcurrentHashMap<>();
     private static final float DISPLAY_SCALE = 0.50F;
+    private static final long DISPLAY_RECHECK_INTERVAL_TICKS = 20L;
+    private static final int EMPTY_DISPLAY_FINGERPRINT = Integer.MIN_VALUE;
     private static boolean initialized;
     private static BukkitTask hoverTask;
     private static BukkitTask pruneTask;
@@ -79,11 +81,27 @@ public final class BarrelDisplayManager {
         }
 
         String barrelKey = getBarrelKey(block);
+        long gameTime = block.getWorld().getGameTime();
+        DisplayState state = STATES.get(barrelKey);
+        if (state != null && !shouldInspect(gameTime, state.nextInspectionTick)) {
+            return;
+        }
+
         ItemStack storedItem;
         try {
             var contents = barrel.visibleContents(block);
             if (!contents.safe() || contents.item() == null || contents.amount() <= 0) {
                 removeTracked(barrelKey);
+                // Cache empty and ambiguous visual states too. These are presentation-only entries;
+                // they never alter the barrel's persisted item identity, buffers or quantity.
+                STATES.put(barrelKey, new DisplayState(
+                    EMPTY_DISPLAY_FINGERPRINT,
+                    null,
+                    block.getWorld().getUID(),
+                    block.getX() >> 4,
+                    block.getZ() >> 4,
+                    gameTime + DISPLAY_RECHECK_INTERVAL_TICKS
+                ));
                 return;
             }
             storedItem = contents.item();
@@ -96,9 +114,8 @@ public final class BarrelDisplayManager {
 
         BlockFace face = getDisplayFace(block);
         int fingerprint = 31 * shownItem.hashCode() + face.ordinal();
-        DisplayState state = STATES.get(barrelKey);
-
-        if (state != null && state.fingerprint == fingerprint) {
+        if (state != null && state.entityId != null && state.fingerprint == fingerprint) {
+            state.nextInspectionTick = gameTime + DISPLAY_RECHECK_INTERVAL_TICKS;
             return;
         }
 
@@ -114,7 +131,8 @@ public final class BarrelDisplayManager {
             display.getUniqueId(),
             block.getWorld().getUID(),
             block.getX() >> 4,
-            block.getZ() >> 4
+            block.getZ() >> 4,
+            gameTime + DISPLAY_RECHECK_INTERVAL_TICKS
         ));
     }
 
@@ -138,9 +156,18 @@ public final class BarrelDisplayManager {
         }
     }
 
+    /**
+     * A per-barrel deadline avoids phase-locking to a machine tick interval that divides 20.
+     * A backwards world-time jump also forces an immediate visual recheck.
+     */
+    static boolean shouldInspect(long gameTime, long nextInspectionTick) {
+        long remaining = nextInspectionTick - gameTime;
+        return remaining <= 0L || remaining > DISPLAY_RECHECK_INTERVAL_TICKS;
+    }
+
     private static void removeTracked(@Nonnull String barrelKey) {
         DisplayState state = STATES.remove(barrelKey);
-        if (state == null) {
+        if (state == null || state.entityId == null) {
             return;
         }
 
@@ -321,6 +348,9 @@ public final class BarrelDisplayManager {
                 return true;
             }
 
+            if (state.entityId == null) {
+                return false;
+            }
             Entity entity = Bukkit.getServer().getEntity(state.entityId);
             return !(entity instanceof ItemDisplay) || !entity.isValid();
         });
@@ -332,13 +362,17 @@ public final class BarrelDisplayManager {
         private final UUID worldId;
         private final int chunkX;
         private final int chunkZ;
+        private volatile long nextInspectionTick;
 
-        private DisplayState(int fingerprint, UUID entityId, UUID worldId, int chunkX, int chunkZ) {
+        private DisplayState(
+            int fingerprint, UUID entityId, UUID worldId, int chunkX, int chunkZ, long nextInspectionTick
+        ) {
             this.fingerprint = fingerprint;
             this.entityId = entityId;
             this.worldId = worldId;
             this.chunkX = chunkX;
             this.chunkZ = chunkZ;
+            this.nextInspectionTick = nextInspectionTick;
         }
     }
 }
