@@ -12,6 +12,8 @@ import io.github.thebusybiscuit.slimefun4.api.items.SlimefunItem;
 import io.github.thebusybiscuit.slimefun4.api.player.PlayerBackpack;
 import io.github.thebusybiscuit.slimefun4.core.attributes.EnergyNetComponent;
 import io.github.thebusybiscuit.slimefun4.implementation.Slimefun;
+import io.ncbpfluffybear.fluffymachines.items.Barrel;
+import io.ncbpfluffybear.fluffymachines.utils.BarrelDisplayManager;
 import io.ncbpfluffybear.fluffymachines.machines.BackpackLoader;
 import io.ncbpfluffybear.fluffymachines.machines.BackpackUnloader;
 import java.io.IOException;
@@ -47,6 +49,7 @@ import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
+import org.bukkit.entity.ItemDisplay;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -92,6 +95,9 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
         // must not consume additional items while the callback queue is controlled.
         Slimefun.getTickerTask().pauseItemTicker("BACKPACK_LOADER");
         Slimefun.getTickerTask().pauseItemTicker("BACKPACK_UNLOADER");
+        // Native barrel visuals are ticked manually too; ambient ticks would invalidate
+        // the exact 20-tick deadline observations below.
+        Slimefun.getTickerTask().pauseItemTicker("SMALL_FLUFFY_BARREL");
         CompletableFuture<Void> phase = args[0].equals("run") ? runChecks() : readChecks();
         phase.whenComplete((ignored, failure) -> owner(() -> {
             for (Gate gate : gates) gate.release.complete(null);
@@ -103,6 +109,7 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
 
     private CompletableFuture<Void> runChecks() {
         List<Scenario> scenarios = List.of(
+                new Scenario("barrel-display-and-quantities", this::barrelDisplayLifecycle),
                 new Scenario("normal-loader", () -> normal(true)),
                 new Scenario("normal-unloader", () -> normal(false)),
                 new Scenario("legacy-lore-loader", () -> normal(true, true)),
@@ -139,6 +146,106 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
             writeJson(getDataFolder().toPath().resolve("restart-fixtures.json"), restartFixtures);
             return (Void) null;
         }));
+    }
+
+    /**
+     * Exercises the real registered Fluffy Barrel ticker and Bukkit ItemDisplay entities.
+     * Inputs and output slots remain physical inventories; only the presentation cache is delayed.
+     */
+    private CompletableFuture<Check> barrelDisplayLifecycle() {
+        return ownerCompose(() -> {
+            Check check = new Check();
+            fixtureNumber++;
+            Location location = new Location(world, 1536 + fixtureNumber * 128, 64, 1536);
+            Chunk chunk = holdChunk(location);
+            blocks.getChunkData(chunk);
+            SlimefunItem item = SlimefunItem.getById("SMALL_FLUFFY_BARREL");
+            if (!(item instanceof Barrel barrel) || !item.getBlockTicker().isSynchronized()) {
+                throw new IllegalStateException("Real synchronized Fluffy Barrel ticker is unavailable");
+            }
+
+            Block block = location.getBlock();
+            block.setType(item.getItem().getType(), false);
+            SlimefunBlockData data = blocks.createBlock(location, item.getId());
+            BlockMenu menu = data.getBlockMenu();
+            if (menu == null || !data.isDataLoaded()) {
+                throw new IllegalStateException("Registered barrel inventory was not loaded");
+            }
+
+            item.getBlockTicker().tick(block, item, data);
+            check.that(barrelDisplays(location).isEmpty(), "empty barrel has no native item display");
+            check.that(barrel.getStored(block) == 0, "empty barrel reserve starts at zero");
+
+            ItemStack diamonds = rich(Material.DIAMOND, 17, "barrel-first-item");
+            menu.replaceExistingItem(19, diamonds.clone());
+            item.getBlockTicker().tick(block, item, data);
+            check.that(barrelQuantity(barrel, block, menu) == 17L,
+                "storage still conserves 17 diamonds while visual refresh is delayed");
+            check.that(barrelDisplays(location).isEmpty(),
+                "cosmetic display inspection stays deferred before the deadline");
+
+            return delay(25).thenCompose(ignored -> ownerCompose(() -> {
+                item.getBlockTicker().tick(block, item, data);
+                List<ItemDisplay> displays = barrelDisplays(location);
+                check.that(displays.size() == 1, "one native ItemDisplay is created after deadline");
+                check.that(displays.size() == 1
+                    && displays.getFirst().getItemStack().getType() == Material.DIAMOND,
+                    "display represents the registered diamonds");
+                check.that(barrelQuantity(barrel, block, menu) == 17L,
+                    "display refresh does not create or consume storage items");
+                ItemStack output = menu.getItemInSlot(24);
+                check.that(output != null && output.getAmount() == 17
+                    && diamonds.isSimilar(output), "physical output preserves rich item metadata");
+
+                // Simulate a complete physical network withdrawal without editing stored reserve.
+                for (int slot : new int[] {24, 25}) menu.replaceExistingItem(slot, null);
+                menu.markDirty();
+                item.getBlockTicker().tick(block, item, data);
+                check.that(barrelQuantity(barrel, block, menu) == 0L, "output withdrawal empties the barrel");
+
+                return delay(25).thenCompose(done -> ownerCompose(() -> {
+                    item.getBlockTicker().tick(block, item, data);
+                    check.that(barrelDisplays(location).isEmpty(),
+                        "empty barrel removes stale cosmetic ItemDisplay after deadline");
+
+                    ItemStack emeralds = rich(Material.EMERALD, 9, "barrel-new-item");
+                    menu.replaceExistingItem(19, emeralds.clone());
+                    item.getBlockTicker().tick(block, item, data);
+                    check.that(barrelQuantity(barrel, block, menu) == 9L,
+                        "new item registration conserves nine physical emeralds");
+
+                    return delay(25).thenCompose(finish -> owner(() -> {
+                        item.getBlockTicker().tick(block, item, data);
+                        displays.clear();
+                        displays.addAll(barrelDisplays(location));
+                        check.that(displays.size() == 1
+                            && displays.getFirst().getItemStack().getType() == Material.EMERALD,
+                            "reassigned barrel display updates to the new item");
+                        check.that(barrelQuantity(barrel, block, menu) == 9L,
+                            "second visual refresh never changes real storage quantities");
+
+                        BarrelDisplayManager.remove(block);
+                        check.that(barrelDisplays(location).isEmpty(),
+                            "explicit display removal leaves no orphaned icon");
+                        return check;
+                    }));
+                }));
+            }));
+        });
+    }
+
+    private List<ItemDisplay> barrelDisplays(Location location) {
+        return world.getNearbyEntities(location.clone().add(0.5, 0.5, 0.5), 1.25, 1.25, 1.25)
+            .stream().filter(ItemDisplay.class::isInstance).map(ItemDisplay.class::cast).toList();
+    }
+
+    private static long barrelQuantity(Barrel barrel, Block block, BlockMenu menu) {
+        long stored = barrel.getStored(block);
+        for (int slot : new int[] {19, 20, 24, 25}) {
+            ItemStack stack = menu.getItemInSlot(slot);
+            if (!empty(stack)) stored += stack.getAmount();
+        }
+        return stored;
     }
 
     private CompletableFuture<Check> normal(boolean loader) {
