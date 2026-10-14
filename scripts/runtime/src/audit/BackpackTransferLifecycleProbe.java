@@ -171,6 +171,10 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
             if (menu == null || !data.isDataLoaded()) {
                 throw new IllegalStateException("Registered barrel inventory was not loaded");
             }
+            // Direct core createBlock() bypasses the normal player placement/menu initialization
+            // callback. Reproduce the persisted "stored=0" that an ordinary empty barrel starts with.
+            // Without it Barrel#getStored intentionally rejects the malformed fixture record.
+            barrel.setStored(block, 0);
 
             item.getBlockTicker().tick(block, item, data);
             check.that(barrelDisplays(location).isEmpty(), "empty barrel has no native item display");
