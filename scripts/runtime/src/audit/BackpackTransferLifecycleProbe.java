@@ -216,10 +216,9 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
 
                     return delay(25).thenCompose(finish -> owner(() -> {
                         item.getBlockTicker().tick(block, item, data);
-                        displays.clear();
-                        displays.addAll(barrelDisplays(location));
-                        check.that(displays.size() == 1
-                            && displays.getFirst().getItemStack().getType() == Material.EMERALD,
+                        List<ItemDisplay> updatedDisplays = barrelDisplays(location);
+                        check.that(updatedDisplays.size() == 1
+                            && updatedDisplays.getFirst().getItemStack().getType() == Material.EMERALD,
                             "reassigned barrel display updates to the new item");
                         check.that(barrelQuantity(barrel, block, menu) == 9L,
                             "second visual refresh never changes real storage quantities");
