@@ -43,6 +43,9 @@ public final class BarrelDisplayManager {
     private static final Map<String, DisplayState> STATES = new ConcurrentHashMap<>();
     private static final float DISPLAY_SCALE = 0.50F;
     private static final long DISPLAY_RECHECK_INTERVAL_TICKS = 20L;
+    // Empty presentation entries with no entity would otherwise survive indefinitely after TNT
+    // or a third-party block removal that bypassed this addon's normal break handler.
+    private static final long EMPTY_CACHE_RETENTION_TICKS = 600L;
     private static final int EMPTY_DISPLAY_FINGERPRINT = Integer.MIN_VALUE;
     private static boolean initialized;
     private static BukkitTask hoverTask;
@@ -163,6 +166,11 @@ public final class BarrelDisplayManager {
     static boolean shouldInspect(long gameTime, long nextInspectionTick) {
         long remaining = nextInspectionTick - gameTime;
         return remaining <= 0L || remaining > DISPLAY_RECHECK_INTERVAL_TICKS;
+    }
+
+    static boolean shouldPruneEmpty(long gameTime, long nextInspectionTick) {
+        long overdue = gameTime - nextInspectionTick;
+        return overdue > EMPTY_CACHE_RETENTION_TICKS || overdue < -DISPLAY_RECHECK_INTERVAL_TICKS;
     }
 
     private static void removeTracked(@Nonnull String barrelKey) {
@@ -349,7 +357,9 @@ public final class BarrelDisplayManager {
             }
 
             if (state.entityId == null) {
-                return false;
+                // Active empty barrels re-arm their deadlines every 20 ticks.
+                // Removed barrels with no display entity eventually release their cache entry.
+                return shouldPruneEmpty(world.getGameTime(), state.nextInspectionTick);
             }
             Entity entity = Bukkit.getServer().getEntity(state.entityId);
             return !(entity instanceof ItemDisplay) || !entity.isValid();
