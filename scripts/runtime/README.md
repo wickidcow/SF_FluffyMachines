@@ -58,7 +58,7 @@ verification remains enabled.
 
 ## Cases and preserved behavior
 
-There are 22 transfer cases and four separate-process restart controls. A fixed
+There are 22 backpack-transfer cases, one native Fluffy Barrel display/storage case, and four separate-process restart controls. A fixed
 run must report the exact case set, with every assertion passing, and both
 registered machine tickers declaring synchronized execution.
 
@@ -74,6 +74,7 @@ registered machine tickers declaring synchronized execution.
 | Core block removal | The core locks the captured menu, removes block data, and the late callback leaves its source intact. |
 | Loader/Unloader chunk eviction | Actual world unload and controller-cache eviction must both be observed before the callback is released. Backpack contents, authoritative menu contents and the backpack item survive. |
 | Loader/Unloader replacement menu after eviction | A distinct authoritative menu at the same coordinates is loaded before releasing the stale callback; the detached menu cannot cause a transfer. |
+| Native Fluffy Barrel display and storage | The registered SMALL_FLUFFY_BARREL ticker processes a rich 17-item deposit and 9-item reassignment without loss or duplication; real Bukkit ItemDisplay entities are absent while empty, converge after the 20-tick cosmetic deadline, and are explicitly removed on cleanup. It also deletes a live icon externally and confirms recovery after the next cosmetic deadline without changing stored quantities. |
 | Four restart controls | A fresh server process reads the ordinary PDC/legacy fixtures through the real core controllers and compares backpack inventory, machine inventory, machine ID and remaining energy. |
 
 Fixtures use named native offline players, real Bukkit inventories, actual core
