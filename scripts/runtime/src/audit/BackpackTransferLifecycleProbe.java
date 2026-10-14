@@ -218,7 +218,7 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                     check.that(barrelQuantity(barrel, block, menu) == 9L,
                         "new item registration conserves nine physical emeralds");
 
-                    return delay(25).thenCompose(finish -> owner(() -> {
+                    return delay(25).thenCompose(finish -> ownerCompose(() -> {
                         item.getBlockTicker().tick(block, item, data);
                         List<ItemDisplay> updatedDisplays = barrelDisplays(location);
                         check.that(updatedDisplays.size() == 1
@@ -227,10 +227,31 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                         check.that(barrelQuantity(barrel, block, menu) == 9L,
                             "second visual refresh never changes real storage quantities");
 
-                        BarrelDisplayManager.remove(block);
+                        // Simulate an external plugin removing the cosmetic entity, not the
+                        // barrel's real inventory or persistent registered item identity.
+                        if (updatedDisplays.size() == 1) {
+                            updatedDisplays.getFirst().remove();
+                        }
                         check.that(barrelDisplays(location).isEmpty(),
-                            "explicit display removal leaves no orphaned icon");
-                        return check;
+                            "external display deletion removes only the cosmetic entity");
+                        item.getBlockTicker().tick(block, item, data);
+                        check.that(barrelDisplays(location).isEmpty(),
+                            "missing display is not recreated before its next cosmetic deadline");
+
+                        return delay(25).thenCompose(recheck -> owner(() -> {
+                            item.getBlockTicker().tick(block, item, data);
+                            List<ItemDisplay> repaired = barrelDisplays(location);
+                            check.that(repaired.size() == 1
+                                && repaired.getFirst().getItemStack().getType() == Material.EMERALD,
+                                "externally removed display self-heals at the next refresh deadline");
+                            check.that(barrelQuantity(barrel, block, menu) == 9L,
+                                "icon self-healing does not alter stored item quantities");
+
+                            BarrelDisplayManager.remove(block);
+                            check.that(barrelDisplays(location).isEmpty(),
+                                "explicit display removal leaves no orphaned icon");
+                            return check;
+                        }));
                     }));
                 }));
             }));
