@@ -43,6 +43,14 @@ class BarrelDisplayManagerCadenceTest {
     }
 
     @Test
+    void abandonedEmptyStatesExpireWithoutRemovingActiveBarrelStates() {
+        assertFalse(BarrelDisplayManager.shouldPruneEmpty(105L, 120L));
+        assertFalse(BarrelDisplayManager.shouldPruneEmpty(720L, 120L));
+        assertTrue(BarrelDisplayManager.shouldPruneEmpty(721L, 120L));
+        assertTrue(BarrelDisplayManager.shouldPruneEmpty(0L, 100020L));
+    }
+
+    @Test
     void everyBlockStillGetsItsOwnDeadline() {
         assertTrue(BarrelDisplayManager.shouldInspect(110L, 110L));
         assertFalse(BarrelDisplayManager.shouldInspect(110L, 125L));
