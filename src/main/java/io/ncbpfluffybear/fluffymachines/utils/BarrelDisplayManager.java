@@ -118,8 +118,16 @@ public final class BarrelDisplayManager {
         BlockFace face = getDisplayFace(block);
         int fingerprint = 31 * shownItem.hashCode() + face.ordinal();
         if (state != null && state.entityId != null && state.fingerprint == fingerprint) {
-            state.nextInspectionTick = gameTime + DISPLAY_RECHECK_INTERVAL_TICKS;
-            return;
+            // Check entity existence only at the cosmetic refresh deadline, never on every
+            // barrel ticker pass. External removal must not hide the item for up to 600 ticks
+            // while the global cache-pruner waits for its next maintenance pass.
+            Entity existing = Bukkit.getServer().getEntity(state.entityId);
+            if (existing instanceof ItemDisplay display && display.isValid()
+                && display.getWorld() == block.getWorld()) {
+                state.nextInspectionTick = gameTime + DISPLAY_RECHECK_INTERVAL_TICKS;
+                return;
+            }
+            STATES.remove(barrelKey, state);
         }
 
         ItemDisplay display = findExistingDisplay(block, barrelKey);
