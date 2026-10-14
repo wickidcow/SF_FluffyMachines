@@ -11,14 +11,14 @@ Every synchronized machine tick still runs:
 
 Only `BarrelDisplayManager.update()`'s cosmetic inspection is rate-limited. Previously it inspected the barrel's persisted reserve and both output slots, then cloned and hashed a displayed stack on every ticker invocation even when the visible icon could not change. The proposed cache uses a **per-block, in-memory deadline**, re-reading the display no more often than once every **20 world game ticks** during stable operation. Empty and temporarily ambiguous visual states are also cached, without changing saved item IDs, reserve quantities or world records.
 
-A world game-time rollback causes immediate reinspection. An empty/no-entity entry is safe for the existing tracked-display removal and cache pruning paths. The original item-display entity is persistent; the existing 600-tick cache pruning can repair externally missing entities. There is intentionally no new persistent format, plugin setting, database write or background task.
+A world game-time rollback causes immediate reinspection. An empty/no-entity entry is safe for the existing tracked-display removal and cache pruning paths. The original item-display entity is persistent. A cached entity is checked for validity only when its 20-tick cosmetic inspection is due, restoring an externally removed icon without touching storage. The 600-tick maintenance pass remains as a fallback for abandoned entries. There is intentionally no new persistent format, plugin setting, database write or background task.
 
 ## Regression evidence
 
 - JUnit: before-deadline skips, exact-deadline and overdue refresh, stable schedules even when ticker cadence is not a multiple of 20, independent barrel deadlines and rewound game-time refresh.
 - Existing 26.2.15 Java 21 bytecode, Paper 1.21.11, Paper 26.2, legacy Doctor and backpack integrity tests remain required.
 - 26.2.16 candidate also compiles against the **Paper 26.3 stable API**.
-- The existing disposable Paper harness now runs an additional native barrel case on every supported runtime lane, using the real registered ticker, output slots, ItemDisplay entities and custom item metadata. Passing evidence must come from the updated head's CI, not earlier builds.
+- The existing disposable Paper harness now runs an additional native barrel case on every supported runtime lane, using the real registered ticker, output slots, ItemDisplay entities, custom item metadata, and recovery when a third-party plugin deletes an icon. Passing evidence must come from the updated head's CI, not earlier builds.
 - A green compilation/test suite is not a measured server TPS improvement, and the native headless-world fixture does not replace connected-player interaction or live performance measurements.
 
 ## Staging gate (mandatory before merging/publishing)
