@@ -41,7 +41,8 @@ ORDINARY_CONTROLS = {
     "unloader-empty-backpack-routing", "unloader-nonempty-output-filled", "removed-machine",
 }
 EXPECTED_CASES = NEGATIVE_CONTROLS | ORDINARY_CONTROLS | {
-    "loader-cache-eviction", "unloader-cache-eviction", "loader-menu-replacement", "unloader-menu-replacement"}
+    "loader-cache-eviction", "unloader-cache-eviction", "loader-menu-replacement", "unloader-menu-replacement",
+    "barrel-display-and-quantities"}
 EXPECTED_RESTART_CASES = {f"restart-{identity}-BACKPACK_{machine}"
                           for identity in ("pdc", "legacy") for machine in ("LOADER", "UNLOADER")}
 
