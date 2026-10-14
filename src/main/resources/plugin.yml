@@ -1,6 +1,6 @@
 name: FluffyMachines
 author: NCBPFluffyBear
-description: English maintenance build of FluffyMachines for Minecraft 1.21.11 through 26.2 and Slimefun-compatible cores
+description: English maintenance build of FluffyMachines for Minecraft 1.21.11, 26.2 and 26.3 with Slimefun-compatible cores
 main: io.ncbpfluffybear.fluffymachines.FluffyMachines
 
 depend: [Slimefun]
