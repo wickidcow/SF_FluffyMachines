@@ -18,7 +18,8 @@ A world game-time rollback causes immediate reinspection. An empty/no-entity ent
 - JUnit: before-deadline skips, exact-deadline and overdue refresh, stable schedules even when ticker cadence is not a multiple of 20, independent barrel deadlines and rewound game-time refresh.
 - Existing 26.2.15 Java 21 bytecode, Paper 1.21.11, Paper 26.2, legacy Doctor and backpack integrity tests remain required.
 - 26.2.16 candidate also compiles against the **Paper 26.3 stable API**.
-- A green compilation/test suite is not a measured server TPS improvement or a full GUI/entity runtime proof.
+- The existing disposable Paper harness now runs an additional native barrel case on every supported runtime lane, using the real registered ticker, output slots, ItemDisplay entities and custom item metadata. Passing evidence must come from the updated head's CI, not earlier builds.
+- A green compilation/test suite is not a measured server TPS improvement, and the native headless-world fixture does not replace connected-player interaction or live performance measurements.
 
 ## Staging gate (mandatory before merging/publishing)
 
