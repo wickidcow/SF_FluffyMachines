@@ -52,7 +52,21 @@
                         <relocation><pattern>org.bstats</pattern><shadedPattern>io.ncbpfluffybear.shaded.bstats</shadedPattern></relocation>
                         <relocation><pattern>com.github.Slimefun-Addon-Community.extrautils</pattern><shadedPattern>io.ncbpfluffybear.shaded.extrautils</shadedPattern></relocation>
                     </relocations>
-                    <filters><filter><artifact>*:*</artifact><excludes><exclude>META-INF/*.MF</exclude></excludes></filter></filters>
+                    <!-- Filter only shaded dependencies; leave this project's own manifest untouched. -->
+                    <filters>
+                        <filter>
+                            <artifact>org.bstats:bstats-base</artifact>
+                            <excludes><exclude>META-INF/*.MF</exclude></excludes>
+                        </filter>
+                        <filter>
+                            <artifact>org.bstats:bstats-bukkit</artifact>
+                            <excludes><exclude>META-INF/*.MF</exclude></excludes>
+                        </filter>
+                        <filter>
+                            <artifact>com.github.Slimefun-Addon-Community:ExtraUtils</artifact>
+                            <excludes><exclude>META-INF/*.MF</exclude></excludes>
+                        </filter>
+                    </filters>
                 </configuration>
                 <executions><execution><phase>package</phase><goals><goal>shade</goal></goals></execution></executions>
             </plugin>
