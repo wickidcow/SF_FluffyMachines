@@ -41,6 +41,8 @@ jobs:
           persist-credentials: false
       - name: Verify immutable publication and raw artifact rejection tests
         run: python3 -m unittest scripts.test_immutable_release_guard -v
+      - name: Verify shaded manifest source and negative tests
+        run: python3 -m unittest scripts.test_shaded_manifest_contract -v
       - name: Checkout Slimefun Legacy
         uses: actions/checkout@v6
         with:
@@ -149,6 +151,7 @@ jobs:
           cp "$JAR" "dist/${OUTPUT_NAME}"
           JAR="dist/${OUTPUT_NAME}"
           unzip -p "$JAR" plugin.yml | grep -Fq "api-version: '1.21.11'"
+          python3 scripts/shaded_manifest_contract.py "$JAR" --original "target/original-${OUTPUT_NAME}"
           javap -verbose -classpath "$JAR" io.ncbpfluffybear.fluffymachines.FluffyMachines | grep -Fq 'major version: 65'
           SHA256="$(sha256sum "$JAR" | cut -d' ' -f1)"
           python3 scripts/immutable_release_guard.py --jar "$JAR" --version "$LEGACY_ARTIFACT_VERSION" --sha256 "$SHA256"
@@ -177,7 +180,9 @@ jobs:
       - name: Reject missing, wrapped, wrong-version or changed payloads
         env:
           EXPECTED_SHA256: ${{ needs.build.outputs.jar_sha256 }}
-        run: python3 scripts/immutable_release_guard.py --jar "dist/$OUTPUT_NAME" --version "$LEGACY_ARTIFACT_VERSION" --sha256 "$EXPECTED_SHA256"
+        run: |
+          python3 scripts/immutable_release_guard.py --jar "dist/$OUTPUT_NAME" --version "$LEGACY_ARTIFACT_VERSION" --sha256 "$EXPECTED_SHA256"
+          python3 scripts/shaded_manifest_contract.py "dist/$OUTPUT_NAME"
 
   publish:
     name: Publish explicitly confirmed NEW immutable release
