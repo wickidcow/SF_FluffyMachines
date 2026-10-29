@@ -70,6 +70,8 @@ jobs:
           grep -Fq '<paper.version>1.21.11-R0.1-SNAPSHOT</paper.version>' pom.xml
           grep -Fq '<finalName>SF_FluffyMachines${project.version}</finalName>' pom.xml
           grep -Fq "api-version: '1.21.11'" src/main/resources/plugin.yml
+      - name: Verify native restart readiness and complete case-set contract
+        run: python3 -m unittest scripts.test_native_restart_readiness -v
       - name: Verify Doctor migration safety contract
         run: python3 scripts/verify_doctor_migration.py .
       - name: Verify Paper 1.21.11 compile baseline
