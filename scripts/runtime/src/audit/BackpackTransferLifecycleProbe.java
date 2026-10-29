@@ -684,7 +684,7 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
         CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
         for (Map<String, Object> fixture : fixtures) {
             chain = chain.thenCompose(v -> profiles.getBackpackAsync((String) fixture.get("backpack_uuid")))
-                    .thenCompose(backpack -> owner(() -> {
+                    .thenCompose(backpack -> ownerCompose(() -> {
                         if (backpack == null) throw new IllegalStateException("Restart backpack is missing");
                         Location location = new Location(world, ((Number) fixture.get("x")).intValue(),
                                 ((Number) fixture.get("y")).intValue(), ((Number) fixture.get("z")).intValue());
@@ -692,14 +692,25 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                         SlimefunBlockData data = blocks.getBlockData(location);
                         if (data == null) throw new IllegalStateException("Restart machine is missing");
                         if (!data.isDataLoaded()) blocks.loadBlockData(data);
-                        Check check = new Check();
-                        check.items(decodeItems(fixture.get("backpack_contents")), backpack.getInventory().getContents(), "backpack contents survive a separate process");
-                        check.items(decodeItems(fixture.get("machine_contents")), data.getBlockMenu().getContents(), "machine contents survive a separate process");
-                        check.that(fixture.get("machine_id").equals(data.getSfId()), "machine identity retained");
-                        EnergyNetComponent energy = (EnergyNetComponent) SlimefunItem.getById(data.getSfId());
-                        check.that(energy.getChargeLong(location) == ((Number) fixture.get("charge")).longValue(), "remaining machine energy survives restart");
-                        results.add(check.result("restart-" + fixture.get("identity") + "-" + fixture.get("machine_id")));
-                        return (Void) null;
+                        // On the published 4.1.71 core the async loader marks data loaded
+                        // before attaching the menu. A read in that brief window is not
+                        // evidence of a missing saved inventory. Wait at most five seconds;
+                        // a missing menu still fails the phase and all four fixtures remain required.
+                        return waitUntil(() -> data.isDataLoaded() && data.getBlockMenu() != null, 100)
+                                .thenCompose(v -> owner(() -> {
+                                    BlockMenu menu = data.getBlockMenu();
+                                    if (!data.isDataLoaded() || menu == null) {
+                                        throw new IllegalStateException("Restart machine menu invalidated before inventory comparison");
+                                    }
+                                    Check check = new Check();
+                                    check.items(decodeItems(fixture.get("backpack_contents")), backpack.getInventory().getContents(), "backpack contents survive a separate process");
+                                    check.items(decodeItems(fixture.get("machine_contents")), menu.getContents(), "machine contents survive a separate process");
+                                    check.that(fixture.get("machine_id").equals(data.getSfId()), "machine identity retained");
+                                    EnergyNetComponent energy = (EnergyNetComponent) SlimefunItem.getById(data.getSfId());
+                                    check.that(energy.getChargeLong(location) == ((Number) fixture.get("charge")).longValue(), "remaining machine energy survives restart");
+                                    results.add(check.result("restart-" + fixture.get("identity") + "-" + fixture.get("machine_id")));
+                                    return (Void) null;
+                                }));
                     }));
         }
         return chain;

@@ -160,7 +160,7 @@ public class PortableCharger extends SimpleSlimefunItem<ItemUseHandler> implemen
         SlimefunItem sfItem1 = SlimefunItem.getByItem(e.getCurrentItem());
         SlimefunItem sfItem2 = SlimefunItem.getByItem(e.getCursor());
         if ((sfItem1 instanceof PortableCharger || sfItem2 instanceof PortableCharger)
-            && e.getWhoClicked().getOpenInventory().getTitle().contains("Portable Charger")) {
+            && PortableChargerTitles.matches(e.getWhoClicked().getOpenInventory().title())) {
             e.setCancelled(true);
         }
     }
