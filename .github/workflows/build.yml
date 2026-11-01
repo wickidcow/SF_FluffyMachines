@@ -184,6 +184,31 @@ jobs:
           python3 scripts/immutable_release_guard.py --jar "dist/$OUTPUT_NAME" --version "$LEGACY_ARTIFACT_VERSION" --sha256 "$EXPECTED_SHA256"
           python3 scripts/shaded_manifest_contract.py "dist/$OUTPUT_NAME"
 
+  discover-stable-paper-26-3:
+    name: Read-only official stable Paper 26.3 fixture proposal
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Reject beta and mismatched native fixture metadata
+        run: python3 -m unittest scripts.runtime.test_discover_paper_stable_metadata -v
+      - name: Fetch official stable Paper 26.3 metadata without changing native pins
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/runtime/discover_paper_stable_metadata.py --version 26.3 \
+            > "$RUNNER_TEMP/paper-26.3-stable-proposal.json"
+          cat "$RUNNER_TEMP/paper-26.3-stable-proposal.json"
+      - name: Retain official candidate metadata for independent review
+        uses: actions/upload-artifact@v7
+        with:
+          name: paper-26-3-stable-pin-proposal
+          path: ${{ runner.temp }}/paper-26.3-stable-proposal.json
+          if-no-files-found: error
+
   publish:
     name: Publish explicitly confirmed NEW immutable release
     needs: [build, raw-artifact-preflight]

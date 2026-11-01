@@ -134,3 +134,22 @@ connected-player interaction coverage, crash atomicity, or a transaction across
 the backpack and machine stores. The acknowledged snapshot check proves the
 tested cancellation did not acknowledge a save; it is not a general audit of
 every possible persistence failure.
+
+
+## Stable Paper 26.3 pin discovery (read-only, not native qualification)
+
+The separate, read-only `discover-stable-paper-26-3` CI job retrieves the official
+PaperMC build listing, selects a **STABLE** candidate for review, and independently
+retrieves that **exact build's** official `server:default` metadata. It rejects BETA
+channels, inconsistent build IDs, missing size/checksum and download URLs that
+do not bind the filename to the SHA-256 content address. Ten negative/positive
+regression tests run before the network lookup. The JSON artifact
+`paper-26-3-stable-pin-proposal` is **not** a server JAR, a source pin,
+or proof of a successful runtime test.
+
+The active `backpack_probe_inputs.json` now pins independently reviewed STABLE
+26.3 build 235, qualified by native 22-transfer, barrel, restart and raw-JAR
+checks in PR #23. The former build 159 BETA pin is retained in the historical
+JSON record. This discovery job does **not** change runtime pins automatically:
+future build upgrades require a separate exact-source review and native tests.
+Do not use a latest-build fallback or treat metadata discovery as runtime proof.
