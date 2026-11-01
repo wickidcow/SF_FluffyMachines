@@ -75,38 +75,17 @@ public class Paxel extends SlimefunItem implements Listener, NotPlaceable {
         SlimefunItem sfItem = SlimefunItem.getByItem(p.getInventory().getItemInMainHand());
 
         if (sfItem != null && sfItem == FluffyItems.PAXEL.getItem()) {
-            boolean netherite = false;
             Block b = e.getBlock();
             ItemStack item = p.getInventory().getItemInMainHand();
-
             Material blockType = b.getType();
 
-            if (item.getType() == Material.NETHERITE_PICKAXE
-                    || item.getType() == Material.NETHERITE_AXE
-                    || item.getType() == Material.NETHERITE_SHOVEL
-            ) {
-                netherite = true;
-            }
-
-            if (SlimefunTag.EXPLOSIVE_SHOVEL_BLOCKS.isTagged(blockType)) {
-                if (netherite) {
-                    item.setType(Material.NETHERITE_SHOVEL);
-                } else {
-                    item.setType(Material.DIAMOND_SHOVEL);
-                }
-            } else if (axeBlocks.contains(blockType)) {
-                if (netherite) {
-                    item.setType(Material.NETHERITE_AXE);
-                } else {
-                    item.setType(Material.DIAMOND_AXE);
-                }
-            } else {
-                if (netherite) {
-                    item.setType(Material.NETHERITE_PICKAXE);
-                } else {
-                    item.setType(Material.DIAMOND_PICKAXE);
-                }
-            }
+            // Keep mutating the original ItemStack: replacing it would discard
+            // legacy Slimefun identity, custom model data, lore and durability.
+            item.setType(materialForBlock(
+                item.getType(),
+                SlimefunTag.EXPLOSIVE_SHOVEL_BLOCKS.isTagged(blockType),
+                axeBlocks.contains(blockType)
+            ));
         }
     }
 
@@ -122,16 +101,29 @@ public class Paxel extends SlimefunItem implements Listener, NotPlaceable {
 
         if (sfItem instanceof Paxel) {
 
-            boolean netherite = item.getType() == Material.NETHERITE_PICKAXE
-                || item.getType() == Material.NETHERITE_AXE
-                || item.getType() == Material.NETHERITE_SHOVEL;
-
-            if (netherite) {
-                item.setType(Material.NETHERITE_AXE);
-            } else {
-                item.setType(Material.DIAMOND_AXE);
-            }
+            item.setType(materialForHit(item.getType()));
         }
 
+    }
+    static Material materialForBlock(Material currentTool, boolean shovelBlock, boolean axeBlock) {
+        boolean netherite = isNetheriteTool(currentTool);
+        // The historical shovel-tag check takes precedence over the axe list.
+        if (shovelBlock) {
+            return netherite ? Material.NETHERITE_SHOVEL : Material.DIAMOND_SHOVEL;
+        }
+        if (axeBlock) {
+            return netherite ? Material.NETHERITE_AXE : Material.DIAMOND_AXE;
+        }
+        return netherite ? Material.NETHERITE_PICKAXE : Material.DIAMOND_PICKAXE;
+    }
+
+    static Material materialForHit(Material currentTool) {
+        return isNetheriteTool(currentTool) ? Material.NETHERITE_AXE : Material.DIAMOND_AXE;
+    }
+
+    private static boolean isNetheriteTool(Material material) {
+        return material == Material.NETHERITE_PICKAXE
+            || material == Material.NETHERITE_AXE
+            || material == Material.NETHERITE_SHOVEL;
     }
 }
