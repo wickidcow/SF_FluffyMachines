@@ -20,9 +20,20 @@ python3 scripts/runtime/prepare_backpack_probe_inputs.py --out /tmp/fluffy-input
 The script verifies each official Paper metadata response against
 `backpack_probe_inputs.json`, then verifies size, SHA-256 and archive CRC. The
 output `inputs.json` provides `core.path` and `paper[version].path`. The lanes are
-Paper 1.21.11 build 132 (STABLE), 26.2 build 132 (STABLE), and 26.3 build 159 (BETA).
+Paper 1.21.11 build 132 (STABLE), 26.2 build 132 (STABLE), and 26.3 build 235 (STABLE).
 Changing those pins is an explicit maintenance operation; there is no fallback
 to a different build.
+
+The 26.3 stable build 235 pin was independently obtained from the official
+PaperMC exact-build metadata and captured in [read-only CI evidence](https://github.com/wickidcow/SF_FluffyMachines/actions/runs/41297414894)
+(artifact 13079393703): size 55,261,122 bytes, SHA-256
+`4ebaf5c9da98c654bb8f17245799943dfb05a285830be4307bfdf7bc9ca024bf`.
+The former build 159 BETA record is preserved unchanged in
+`paper_26_3_beta_159_historical.json` for historical provenance, but is no longer
+selected by the native runner. The pinned published Legacy 4.1.71 core is unchanged.
+A passing stable native probe will qualify only the exact tested core/addon/server
+pair, not arbitrary world upgrades, Folia ownership, or database backends.
+
 
 Run a candidate JAR, using the corresponding paths from `inputs.json`:
 
