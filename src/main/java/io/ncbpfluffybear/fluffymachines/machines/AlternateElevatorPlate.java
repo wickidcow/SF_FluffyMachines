@@ -89,7 +89,10 @@ public class AlternateElevatorPlate extends SimpleSlimefunItem<BlockUseHandler> 
     public List<Block> getFloors(@Nonnull Block b) {
         List<Block> floors = new LinkedList<>();
 
-        for (int y = b.getWorld().getMaxHeight(); y > -64; y--) {
+        // Bukkit's maximum height is exclusive and the minimum is inclusive.
+        // Never skip the bottom build layer or scan outside custom world bounds.
+        int[] bounds = scanBounds(b.getWorld().getMinHeight(), b.getWorld().getMaxHeight());
+        for (int y = bounds[0]; y >= bounds[1]; y--) {
             if (y == b.getY()) {
                 floors.add(b);
                 continue;
@@ -103,6 +106,14 @@ public class AlternateElevatorPlate extends SimpleSlimefunItem<BlockUseHandler> 
         }
 
         return floors;
+    }
+
+    /**
+     * Returns inclusive Y bounds for scanning a world's valid block positions.
+     * Bukkit reports the top build height as exclusive.
+     */
+    static int[] scanBounds(int minHeight, int maxHeight) {
+        return new int[] {maxHeight - 1, minHeight};
     }
 
     @ParametersAreNonnullByDefault
