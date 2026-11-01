@@ -77,5 +77,16 @@ class StablePaperMetadataTest(unittest.TestCase):
             proposed_pin(VERSION, BUILD, changed)
 
 
+    def test_read_only_job_precedes_immutable_publisher(self):
+        from pathlib import Path
+        workflow = (Path(__file__).resolve().parents[2] / ".github/workflows/build.yml").read_text()
+        discovery = "\n  discover-stable-paper-26-3:\n"
+        publisher = "\n  publish:\n"
+        self.assertEqual(workflow.count(discovery), 1)
+        self.assertEqual(workflow.count(publisher), 1)
+        self.assertLess(workflow.index(discovery), workflow.index(publisher))
+        self.assertNotRegex(workflow.split(publisher, 1)[1], r"\n  [a-z][a-z0-9-]*:\n")
+
+
 if __name__ == "__main__":
     unittest.main()
