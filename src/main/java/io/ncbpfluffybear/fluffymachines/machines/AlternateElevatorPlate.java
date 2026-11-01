@@ -161,7 +161,7 @@ public class AlternateElevatorPlate extends SimpleSlimefunItem<BlockUseHandler> 
 
             PaperLib.teleportAsync(player, destination).thenAccept(teleported -> {
                 if (teleported) {
-                    player.sendTitle(Utils.color("&f") + ChatColors.color(floorName), null, 20, 60, 20);
+                    ElevatorTitle.send(player, Utils.color("&f") + ChatColors.color(floorName));
                 }
             });
         });
