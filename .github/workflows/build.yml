@@ -73,7 +73,7 @@ jobs:
           grep -Fq '<finalName>SF_FluffyMachines${project.version}</finalName>' pom.xml
           grep -Fq "api-version: '1.21.11'" src/main/resources/plugin.yml
       - name: Verify native restart readiness and complete case-set contract
-        run: python3 -m unittest scripts.test_native_restart_readiness -v
+        run: python3 -m unittest scripts.test_native_restart_readiness scripts.test_paper_stable_runtime_pin -v
       - name: Verify Doctor migration safety contract
         run: python3 scripts/verify_doctor_migration.py .
       - name: Verify Paper 1.21.11 compile baseline
@@ -183,7 +183,6 @@ jobs:
         run: |
           python3 scripts/immutable_release_guard.py --jar "dist/$OUTPUT_NAME" --version "$LEGACY_ARTIFACT_VERSION" --sha256 "$EXPECTED_SHA256"
           python3 scripts/shaded_manifest_contract.py "dist/$OUTPUT_NAME"
-
 
   discover-stable-paper-26-3:
     name: Read-only official stable Paper 26.3 fixture proposal

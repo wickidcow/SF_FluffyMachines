@@ -20,9 +20,20 @@ python3 scripts/runtime/prepare_backpack_probe_inputs.py --out /tmp/fluffy-input
 The script verifies each official Paper metadata response against
 `backpack_probe_inputs.json`, then verifies size, SHA-256 and archive CRC. The
 output `inputs.json` provides `core.path` and `paper[version].path`. The lanes are
-Paper 1.21.11 build 132 (STABLE), 26.2 build 132 (STABLE), and 26.3 build 159 (BETA).
+Paper 1.21.11 build 132 (STABLE), 26.2 build 132 (STABLE), and 26.3 build 235 (STABLE).
 Changing those pins is an explicit maintenance operation; there is no fallback
 to a different build.
+
+The 26.3 stable build 235 pin was independently obtained from the official
+PaperMC exact-build metadata and captured in [read-only CI evidence](https://github.com/wickidcow/SF_FluffyMachines/actions/runs/41297414894)
+(artifact 13079393703): size 55,261,122 bytes, SHA-256
+`4ebaf5c9da98c654bb8f17245799943dfb05a285830be4307bfdf7bc9ca024bf`.
+The former build 159 BETA record is preserved unchanged in
+`paper_26_3_beta_159_historical.json` for historical provenance, but is no longer
+selected by the native runner. The pinned published Legacy 4.1.71 core is unchanged.
+A passing stable native probe will qualify only the exact tested core/addon/server
+pair, not arbitrary world upgrades, Folia ownership, or database backends.
+
 
 Run a candidate JAR, using the corresponding paths from `inputs.json`:
 
@@ -125,7 +136,7 @@ tested cancellation did not acknowledge a save; it is not a general audit of
 every possible persistence failure.
 
 
-## Stable Paper 26.3 pin discovery (not native qualification)
+## Stable Paper 26.3 pin discovery (read-only, not native qualification)
 
 The separate, read-only `discover-stable-paper-26-3` CI job retrieves the official
 PaperMC build listing, selects a **STABLE** candidate for review, and independently
@@ -136,9 +147,9 @@ regression tests run before the network lookup. The JSON artifact
 `paper-26-3-stable-pin-proposal` is **not** a server JAR, a source pin,
 or proof of a successful runtime test.
 
-The current `backpack_probe_inputs.json` deliberately remains the historical
-26.3 build 159 BETA fixture. After reviewing the captured official proposal,
-create a separate narrowly scoped PR that pins its exact immutable metadata
-and runs the full native 22-transfer, barrel, four-restart and raw-JAR checks
-against the new stable binary. Do not use a latest-build fallback in the native
-probe or claim stable 26.3 runtime support from this discovery alone.
+The active `backpack_probe_inputs.json` now pins independently reviewed STABLE
+26.3 build 235, qualified by native 22-transfer, barrel, restart and raw-JAR
+checks in PR #23. The former build 159 BETA pin is retained in the historical
+JSON record. This discovery job does **not** change runtime pins automatically:
+future build upgrades require a separate exact-source review and native tests.
+Do not use a latest-build fallback or treat metadata discovery as runtime proof.

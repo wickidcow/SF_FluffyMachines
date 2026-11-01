@@ -153,6 +153,8 @@ def validate_pins(pins: dict) -> None:
         expected_metadata = (
             f"https://fill.papermc.io/v3/projects/paper/versions/{version}/builds/{pin['build']}"
         )
+        if type(pin.get("build")) is not int or pin["build"] <= 0 or pin.get("channel") != "STABLE":
+            raise ValueError("Native Paper runtime pins must identify an exact STABLE build")
         if pin["project"] != "paper" or pin["version"] != version or pin["metadata_url"] != expected_metadata:
             raise ValueError("Pinned Paper identity does not match its official metadata URL")
 
