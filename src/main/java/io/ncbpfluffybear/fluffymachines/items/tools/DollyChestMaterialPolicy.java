@@ -31,6 +31,18 @@ final class DollyChestMaterialPolicy {
         return name.equals("COPPER_CHEST") || name.endsWith("_COPPER_CHEST");
     }
 
+    /** Preserve the historic missing/invalid saved material fallback. */
+    static Material storedOrChest(@Nullable String stored) {
+        Material material = stored == null ? null : Material.matchMaterial(stored);
+        return isSupported(material) ? material : Material.CHEST;
+    }
+
+    /** Preserve the historic invalid/incompatible second-half fallback. */
+    static Material storedSecondOrFirst(Material first, @Nullable String stored) {
+        Material material = stored == null ? null : Material.matchMaterial(stored);
+        return isCompatiblePair(first, material) ? material : first;
+    }
+
     static boolean isCompatiblePair(Material first, @Nullable Material second) {
         if (!isSupported(first) || !isSupported(second)) {
             return false;
