@@ -332,18 +332,7 @@ public class Dolly extends SimpleSlimefunItem<ItemUseHandler> {
      * waxed equivalents.</p>
      */
     private boolean isSupportedChestMaterial(@Nullable Material material) {
-        return material == Material.CHEST
-            || material == Material.TRAPPED_CHEST
-            || isCopperChestMaterial(material);
-    }
-
-    private boolean isCopperChestMaterial(@Nullable Material material) {
-        if (material == null) {
-            return false;
-        }
-
-        String name = material.name();
-        return name.equals("COPPER_CHEST") || name.endsWith("_COPPER_CHEST");
+        return DollyChestMaterialPolicy.isSupported(material);
     }
 
     private boolean canPickupChest(Block block, Player player) {
@@ -696,16 +685,7 @@ public class Dolly extends SimpleSlimefunItem<ItemUseHandler> {
     }
 
     private boolean isCompatibleChestPair(Material first, @Nullable Material second) {
-        if (!isSupportedChestMaterial(first) || !isSupportedChestMaterial(second)) {
-            return false;
-        }
-
-        if (isCopperChestMaterial(first)) {
-            return isCopperChestMaterial(second);
-        }
-
-        // Normal and trapped chests may only form doubles with the same type.
-        return first == second;
+        return DollyChestMaterialPolicy.isCompatiblePair(first, second);
     }
 
     private void applyStoredChestData(ItemStack dolly, Block first, @Nullable Block second) {
