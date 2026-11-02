@@ -41,6 +41,7 @@ class DollyChestMaterialPolicyTest {
             .filter(material -> material.name().equals("COPPER_CHEST")
                 || material.name().endsWith("_COPPER_CHEST"))
             .toList();
+        assertFalse(copper.isEmpty(), "The supported 1.21.11+ API must expose copper chests");
         for (Material first : copper) {
             assertTrue(DollyChestMaterialPolicy.isCopperChest(first));
             assertTrue(DollyChestMaterialPolicy.isSupported(first));
@@ -77,15 +78,18 @@ class DollyChestMaterialPolicyTest {
 
     @Test
     void savedCopperVariantRemainsSupportedAndFallsBackToItsOwnType() {
+        int tested = 0;
         for (Material copper : Material.values()) {
             if (!DollyChestMaterialPolicy.isCopperChest(copper)) {
                 continue;
             }
+            tested++;
             assertEquals(copper, DollyChestMaterialPolicy.storedOrChest(copper.name()));
             assertEquals(copper,
                 DollyChestMaterialPolicy.storedSecondOrFirst(copper, "CHEST"));
             assertEquals(copper,
                 DollyChestMaterialPolicy.storedSecondOrFirst(copper, "NOT_A_CHEST"));
         }
+        assertTrue(tested > 0, "Copper fallback test must exercise actual copper chest materials");
     }
 }
