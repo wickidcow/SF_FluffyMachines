@@ -666,8 +666,7 @@ public class Dolly extends SimpleSlimefunItem<ItemUseHandler> {
         }
 
         String value = meta.getPersistentDataContainer().get(CHEST_TYPE_KEY, PersistentDataType.STRING);
-        Material material = value == null ? null : Material.matchMaterial(value);
-        return isSupportedChestMaterial(material) ? material : Material.CHEST;
+        return DollyChestMaterialPolicy.storedOrChest(value);
     }
 
     private Material getStoredSecondChestMaterial(ItemStack dolly, Material firstMaterial) {
@@ -680,8 +679,7 @@ public class Dolly extends SimpleSlimefunItem<ItemUseHandler> {
             SECOND_CHEST_TYPE_KEY,
             PersistentDataType.STRING
         );
-        Material material = value == null ? null : Material.matchMaterial(value);
-        return isCompatibleChestPair(firstMaterial, material) ? material : firstMaterial;
+        return DollyChestMaterialPolicy.storedSecondOrFirst(firstMaterial, value);
     }
 
     private boolean isCompatibleChestPair(Material first, @Nullable Material second) {
