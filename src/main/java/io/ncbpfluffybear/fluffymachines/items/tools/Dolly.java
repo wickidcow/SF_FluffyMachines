@@ -332,18 +332,7 @@ public class Dolly extends SimpleSlimefunItem<ItemUseHandler> {
      * waxed equivalents.</p>
      */
     private boolean isSupportedChestMaterial(@Nullable Material material) {
-        return material == Material.CHEST
-            || material == Material.TRAPPED_CHEST
-            || isCopperChestMaterial(material);
-    }
-
-    private boolean isCopperChestMaterial(@Nullable Material material) {
-        if (material == null) {
-            return false;
-        }
-
-        String name = material.name();
-        return name.equals("COPPER_CHEST") || name.endsWith("_COPPER_CHEST");
+        return DollyChestMaterialPolicy.isSupported(material);
     }
 
     private boolean canPickupChest(Block block, Player player) {
@@ -677,8 +666,7 @@ public class Dolly extends SimpleSlimefunItem<ItemUseHandler> {
         }
 
         String value = meta.getPersistentDataContainer().get(CHEST_TYPE_KEY, PersistentDataType.STRING);
-        Material material = value == null ? null : Material.matchMaterial(value);
-        return isSupportedChestMaterial(material) ? material : Material.CHEST;
+        return DollyChestMaterialPolicy.storedOrChest(value);
     }
 
     private Material getStoredSecondChestMaterial(ItemStack dolly, Material firstMaterial) {
@@ -691,21 +679,11 @@ public class Dolly extends SimpleSlimefunItem<ItemUseHandler> {
             SECOND_CHEST_TYPE_KEY,
             PersistentDataType.STRING
         );
-        Material material = value == null ? null : Material.matchMaterial(value);
-        return isCompatibleChestPair(firstMaterial, material) ? material : firstMaterial;
+        return DollyChestMaterialPolicy.storedSecondOrFirst(firstMaterial, value);
     }
 
     private boolean isCompatibleChestPair(Material first, @Nullable Material second) {
-        if (!isSupportedChestMaterial(first) || !isSupportedChestMaterial(second)) {
-            return false;
-        }
-
-        if (isCopperChestMaterial(first)) {
-            return isCopperChestMaterial(second);
-        }
-
-        // Normal and trapped chests may only form doubles with the same type.
-        return first == second;
+        return DollyChestMaterialPolicy.isCompatiblePair(first, second);
     }
 
     private void applyStoredChestData(ItemStack dolly, Block first, @Nullable Block second) {
