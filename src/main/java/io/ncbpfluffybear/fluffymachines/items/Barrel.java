@@ -24,8 +24,6 @@ import me.mrCookieSlime.Slimefun.api.inventory.BlockMenuPreset;
 import me.mrCookieSlime.Slimefun.api.inventory.DirtyChestMenu;
 import me.mrCookieSlime.Slimefun.api.item_transport.ItemTransportFlow;
 import org.bukkit.Material;
-import org.bukkit.NamespacedKey;
-import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.inventory.meta.ItemMeta;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
@@ -134,6 +132,13 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
                 BlockMenu inv = StorageCacheUtils.getMenu(b.getLocation());
                 int capacity = getCapacity(b);
                 int stored = getStored(b);
+                // A missing menu or inconsistent identity/count cannot be safely broken.
+                // Do not drop the visible slots and then destroy unaccounted saved items.
+                if (inv == null || !inspectContents(inv, b).safe()) {
+                    Utils.send(p, "&cThis barrel's storage could not be verified. Do not break it; ask an administrator.");
+                    e.setCancelled(true);
+                    return;
+                }
                 if (inv != null) {
 
                     int itemCount = 0;
@@ -482,9 +487,9 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
         // that cosmetic representation when BOTH items carry the exact same Slimefun ID
         // and their visible, unformatted names are identical. All other metadata,
         // including custom model data, lore and addon PDC, must still match.
-        NamespacedKey slimefunIdKey = new NamespacedKey("slimefun", "slimefun_item");
-        String firstId = first.getPersistentDataContainer().get(slimefunIdKey, PersistentDataType.STRING);
-        String secondId = second.getPersistentDataContainer().get(slimefunIdKey, PersistentDataType.STRING);
+        // Follow the active Slimefun core's item-ID key instead of assuming a namespace.
+        String firstId = Slimefun.getItemDataService().getItemData(first).orElse(null);
+        String secondId = Slimefun.getItemDataService().getItemData(second).orElse(null);
         if (firstId == null || !firstId.equals(secondId)) return false;
         if (first.displayName() == null || second.displayName() == null) return false;
         if (!samePlainDisplayName(first.displayName(), second.displayName())) return false;
@@ -710,7 +715,7 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
         }
     }
     public int getStored(Block b) {
-        return Integer.parseInt(StorageCacheUtils.getData(b.getLocation(), "stored"));
+        return BarrelTransferMath.parseStored(StorageCacheUtils.getData(b.getLocation(), "stored"));
     }
 
     public void setStored(Block b, int amount) {
