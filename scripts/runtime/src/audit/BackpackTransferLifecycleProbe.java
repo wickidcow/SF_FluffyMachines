@@ -119,6 +119,7 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                 new Scenario("barrel-display-and-quantities", this::barrelDisplayLifecycle),
                 new Scenario("barrel-slimefun-cargo-metadata", this::barrelSlimefunCargoMetadata),
                 new Scenario("barrel-cargo-restart-write", this::barrelRestartWrite),
+                new Scenario("barrel-actual-cargo-network", this::barrelActualCargoNetwork),
                 new Scenario("normal-loader", () -> normal(true)),
                 new Scenario("normal-unloader", () -> normal(false)),
                 new Scenario("legacy-lore-loader", () -> normal(true, true)),
@@ -165,6 +166,112 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
      * Native Cargo-facing insertion of two different registered Slimefun items.
      * Cosmetic Adventure component layouts may vary; lore and Slimefun identity may not.
      */
+    /** Run the actual production CargoNetworkTask with real wall-head nodes and a chest source. */
+    private void runNativeCargoNetwork(CargoNet network, Location input, Location output, boolean withOutput) {
+        try {
+            Class<?> task = Class.forName("io.github.thebusybiscuit.slimefun4.core.networks.cargo.CargoNetworkTask");
+            var constructor = task.getDeclaredConstructor(CargoNet.class, Map.class, Map.class);
+            constructor.setAccessible(true);
+            Map<Integer, List<Location>> destinations = withOutput ? Map.of(0, List.of(output)) : Map.of();
+            Runnable work = (Runnable) constructor.newInstance(network, Map.of(input, 0), destinations);
+            work.run();
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("Native production Cargo network task could not execute", failure);
+        }
+    }
+
+    private Block nativeCargoNode(Location location, String id, BlockFace facing) {
+        SlimefunItem node = SlimefunItem.getById(id);
+        if (node == null) throw new IllegalStateException("Missing registered node " + id);
+        Block block = location.getBlock();
+        block.setType(Material.PLAYER_WALL_HEAD, false);
+        Directional data = (Directional) block.getBlockData();
+        data.setFacing(facing);
+        block.setBlockData(data, false);
+        SlimefunBlockData sfData = blocks.createBlock(location, node.getId());
+        if (!sfData.isDataLoaded() || sfData.getBlockMenu() == null)
+            throw new IllegalStateException("Cargo node is not initialized " + id);
+        StorageCacheUtils.setData(location, "frequency", "0");
+        return block;
+    }
+
+    /** Prove one input node does not deliver into a barrel; a network output node does. */
+    private CompletableFuture<Check> barrelActualCargoNetwork() {
+        return owner(() -> {
+            Check check = new Check();
+            fixtureNumber++;
+            Location base = new Location(world, 1536 + fixtureNumber * 128, 64, 1536);
+            Chunk chunk = holdChunk(base);
+            blocks.getChunkData(chunk);
+            SlimefunItem barrelItem = SlimefunItem.getById("SMALL_FLUFFY_BARREL");
+            SlimefunItem materialItem = SlimefunItem.getById("REINFORCED_PLATE");
+            SlimefunItem managerItem = SlimefunItem.getById("CARGO_MANAGER");
+            if (!(barrelItem instanceof Barrel barrel) || materialItem == null || managerItem == null)
+                throw new IllegalStateException("Native Cargo network registration is incomplete");
+            Block destination = base.getBlock();
+            destination.setType(barrelItem.getItem().getType(), false);
+            SlimefunBlockData barrelData = blocks.createBlock(base, barrelItem.getId());
+            BlockMenu menu = barrelData.getBlockMenu();
+            if (menu == null || !barrelData.isDataLoaded())
+                throw new IllegalStateException("Native Cargo destination barrel menu missing");
+            barrel.setStored(destination, 0);
+
+            Location chestLocation = base.clone().add(2, 0, 0);
+            Block source = chestLocation.getBlock();
+            source.setType(Material.CHEST, false);
+            org.bukkit.block.Chest chest = (org.bukkit.block.Chest) source.getState(false);
+            var inventory = chest.getBlockInventory();
+            ItemStack cargo = new ItemStack(materialItem.getItem().getType(), 64);
+            cargo.setItemMeta(materialItem.getItem().getItemMeta());
+            inventory.setItem(0, cargo.clone());
+
+            Location inputLocation = base.clone().add(1, 0, 0);
+            nativeCargoNode(inputLocation, "CARGO_NODE_INPUT", BlockFace.WEST);
+            Location outputLocation = base.clone().add(0, 0, 1);
+            nativeCargoNode(outputLocation, "CARGO_NODE_OUTPUT", BlockFace.SOUTH);
+            Location managerLocation = base.clone().add(1, 0, 1);
+            Block regulator = managerLocation.getBlock();
+            regulator.setType(managerItem.getItem().getType(), false);
+            blocks.createBlock(managerLocation, managerItem.getId());
+            CargoNet cargoNet = CargoNet.getNetworkFromLocationOrCreate(managerLocation);
+
+            runNativeCargoNetwork(cargoNet, inputLocation, outputLocation, false);
+            check.that(inventory.getItem(0) != null && inventory.getItem(0).getAmount() == 64,
+                    "a Cargo INPUT node without any output destination returns items to its source");
+            check.that(barrel.visibleContents(destination).safe()
+                    && barrel.visibleContents(destination).amount() == 0L,
+                    "source-only Cargo node cannot magically deposit into the barrel");
+
+            runNativeCargoNetwork(cargoNet, inputLocation, outputLocation, true);
+            check.that(inventory.getItem(0) == null,
+                    "production CargoNetworkTask withdraws 64 items from source chest");
+            check.that(menu.getItemInSlot(19) != null && menu.getItemInSlot(19).getAmount() == 64,
+                    "registered Cargo OUTPUT node physically deposits into barrel input slot");
+            barrelItem.getBlockTicker().tick(destination, barrelItem, barrelData);
+            check.that(barrel.visibleContents(destination).safe()
+                    && barrel.visibleContents(destination).amount() == 64L,
+                    "barrel stores all 64 routed Slimefun items without loss or duplication");
+
+            ItemStack another = cargo.clone();
+            another.setAmount(31);
+            inventory.setItem(0, another);
+            runNativeCargoNetwork(cargoNet, inputLocation, outputLocation, true);
+            barrelItem.getBlockTicker().tick(destination, barrelItem, barrelData);
+            check.that(inventory.getItem(0) == null && barrel.visibleContents(destination).safe()
+                    && barrel.visibleContents(destination).amount() == 95L,
+                    "second real Cargo network route preserves all 95 cumulative items");
+            check.that("REINFORCED_PLATE".equals(Slimefun.getItemDataService()
+                    .getItemData(menu.getItemInSlot(24)).orElse(null)),
+                    "routed Slimefun item identity survives actual network handling");
+            ItemStack status = menu.getItemInSlot(22);
+            check.that(status != null && status.hasItemMeta()
+                    && PlainTextComponentSerializer.plainText()
+                            .serialize(status.getItemMeta().displayName()).contains("95 /"),
+                    "barrel GUI accurately reports actual Cargo network output and reserve");
+            return check;
+        });
+    }
+
     /** Create a real Slimefun barrel persisted across a full Paper process restart. */
     private CompletableFuture<Check> barrelRestartWrite() {
         return owner(() -> {
