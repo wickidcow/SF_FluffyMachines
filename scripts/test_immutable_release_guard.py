@@ -235,7 +235,7 @@ class PublisherShellTest(unittest.TestCase):
 
     def test_stale_main_or_wrong_version_cannot_mutate(self):
         self.assert_no_mutation(*self.exercise('stale-head'))
-        self.assert_no_mutation(*self.exercise(REQUESTED_VERSION='26.2.17'))
+        self.assert_no_mutation(*self.exercise(REQUESTED_VERSION='26.2.16'))
 
     def test_push_and_feature_branch_requests_cannot_mutate(self):
         for overrides in ({'GITHUB_EVENT_NAME': 'push'}, {'RELEASE_ENABLED': 'false'},
