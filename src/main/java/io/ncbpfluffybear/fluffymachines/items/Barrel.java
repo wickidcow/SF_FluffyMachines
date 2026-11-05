@@ -134,7 +134,8 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
                 int stored = getStored(b);
                 // A missing menu or inconsistent identity/count cannot be safely broken.
                 // Do not drop the visible slots and then destroy unaccounted saved items.
-                if (inv == null || !inspectContents(inv, b).safe()) {
+                BarrelContents<ItemStack> checked = inv == null ? null : inspectContents(inv, b);
+                if (checked == null || !checked.safe()) {
                     Utils.send(p, "&cThis barrel's storage could not be verified. Do not break it; ask an administrator.");
                     e.setCancelled(true);
                     return;
@@ -143,7 +144,7 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
 
                     int itemCount = 0;
 
-                    if (breakOnlyWhenEmpty.getValue() && stored != 0) {
+                    if (breakOnlyWhenEmpty.getValue() && checked.amount() != 0) {
                         Utils.send(p, "&cPlease empty this barrel before breaking it!");
                         e.setCancelled(true);
                         return;
