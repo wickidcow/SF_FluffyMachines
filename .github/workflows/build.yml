@@ -22,8 +22,8 @@ permissions:
   contents: read
 
 env:
-  LEGACY_ARTIFACT_VERSION: "26.2.16"
-  OUTPUT_NAME: "SF_FluffyMachines26.2.16.jar"
+  LEGACY_ARTIFACT_VERSION: "26.2.17"
+  OUTPUT_NAME: "SF_FluffyMachines26.2.17.jar"
 
 concurrency:
   group: fluffy-machines-${{ github.workflow }}-${{ github.ref }}
@@ -67,7 +67,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -Fq '<version>26.2.16</version>' pom.xml
+          grep -Fq '<version>26.2.17</version>' pom.xml
           grep -Fq '<maven.compiler.release>21</maven.compiler.release>' pom.xml
           grep -Fq '<paper.version>1.21.11-R0.1-SNAPSHOT</paper.version>' pom.xml
           grep -Fq '<finalName>SF_FluffyMachines${project.version}</finalName>' pom.xml
@@ -266,7 +266,7 @@ jobs:
           gh release create "$TAG" "$JAR" --verify-tag \
             --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
             --title "SF_FluffyMachines $TAG" \
-            --notes "Verified FluffyMachines $REQUESTED_VERSION from source $GITHUB_SHA; Java 21 artifact, supported API compilation and native backpack restart checks passed."
+            --notes "Verified FluffyMachines $REQUESTED_VERSION from source $GITHUB_SHA; Java 21 artifact; native Paper 1.21.11, 26.2 and 26.3 barrel Cargo conservation, item-identity, counter, restart and backpack regressions passed."
           test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq '.object.sha')" = "$GITHUB_SHA"
           mkdir -p "$RUNNER_TEMP/published-verification"
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
