@@ -515,7 +515,7 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
         String firstId = Slimefun.getItemDataService().getItemData(first).orElse(null);
         String secondId = Slimefun.getItemDataService().getItemData(second).orElse(null);
         if (!java.util.Objects.equals(firstId, secondId)) return false;
-        if (first.equals(second)) return true;
+        if (first.equals(second)) return item1.isSimilar(item2);
 
         // Cosmetic formatting is not item identity. Legacy components may differ
         // in display-name AND lore tree structure, while retaining identical visible
@@ -523,23 +523,30 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
         // preserve every other metadata field (model, custom data, enchantments,
         // attributes, nested PDC, etc.). Unknown/vanilla items remain strict.
         if (firstId == null) return false;
-        return presentationOnlyDifference(first, second);
+        return presentationOnlyDifference(item1, item2);
     }
-    static boolean presentationOnlyDifference(ItemMeta first, ItemMeta second) {
+    static boolean presentationOnlyDifference(ItemStack one, ItemStack two) {
+        ItemStack firstItem = one.clone();
+        ItemStack secondItem = two.clone();
+        ItemMeta first = firstItem.getItemMeta();
+        ItemMeta second = secondItem.getItemMeta();
         Component firstName = first.displayName();
         Component secondName = second.displayName();
         if (firstName == null ? secondName != null
                 : !samePlainDisplayName(firstName, secondName)) return false;
         if (!samePlainLore(first.lore(), second.lore())) return false;
 
-        // getItemMeta() returned independent snapshots. Strip only the
-        // presentation components FROM THOSE SNAPSHOTS for the strict
-        // comparison; never strip lore or PDC from a real item.
+        // Strip only the presentation components FROM INDEPENDENT STACK CLONES.
+        // ItemStack.isSimilar retains stricter comparison of additional data
+        // components not represented by ItemMeta.equals. Real stacks, lore and
+        // PDC remain untouched.
         first.displayName(null);
         second.displayName(null);
         first.lore(null);
         second.lore(null);
-        return first.equals(second);
+        firstItem.setItemMeta(first);
+        secondItem.setItemMeta(second);
+        return firstItem.isSimilar(secondItem);
     }
     static boolean samePlainDisplayName(Component first, Component second) {
         if (first == null || second == null) return false;
