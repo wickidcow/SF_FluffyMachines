@@ -12,6 +12,8 @@ import io.github.thebusybiscuit.slimefun4.api.items.SlimefunItem;
 import io.github.thebusybiscuit.slimefun4.api.player.PlayerBackpack;
 import io.github.thebusybiscuit.slimefun4.core.attributes.EnergyNetComponent;
 import io.github.thebusybiscuit.slimefun4.implementation.Slimefun;
+import io.github.thebusybiscuit.slimefun4.core.networks.cargo.CargoNet;
+import io.github.thebusybiscuit.slimefun4.utils.itemstack.ItemStackWrapper;
 import io.ncbpfluffybear.fluffymachines.items.Barrel;
 import io.ncbpfluffybear.fluffymachines.utils.BarrelDisplayManager;
 import io.ncbpfluffybear.fluffymachines.machines.BackpackLoader;
@@ -47,6 +49,9 @@ import org.bukkit.NamespacedKey;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.World;
 import org.bukkit.block.Block;
+import org.bukkit.block.BlockFace;
+import org.bukkit.block.data.Directional;
+import java.lang.reflect.Method;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.ItemDisplay;
@@ -200,6 +205,21 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
         });
     }
 
+    /** Invoke the actual CargoNetworkTask -> CargoUtils.insert path on a real registered output node. */
+    private ItemStack insertViaCoreCargo(CargoNet network, Block outputNode, Block target, ItemStack stack) {
+        try {
+            Class<?> util = Class.forName("io.github.thebusybiscuit.slimefun4.core.networks.cargo.CargoUtils");
+            Class<?> networkBase = Class.forName("io.github.thebusybiscuit.slimefun4.core.networks.cargo.AbstractItemNetwork");
+            Method insert = util.getDeclaredMethod("insert", networkBase, Map.class, Block.class, Block.class,
+                    boolean.class, ItemStack.class, ItemStackWrapper.class);
+            insert.setAccessible(true);
+            return (ItemStack) insert.invoke(null, network, new java.util.HashMap<Location, org.bukkit.inventory.Inventory>(),
+                    outputNode, target, false, stack, ItemStackWrapper.wrap(stack));
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("Production CargoUtils.insert could not run in native fixture", failure);
+        }
+    }
+
     private CompletableFuture<Check> barrelSlimefunCargoMetadata() {
         return owner(() -> {
             Check check = new Check();
@@ -223,6 +243,21 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                 }
                 barrel.setStored(block, 0);
 
+                // This is the physical Cargo OUTPUT node: it inserts into the attached barrel.
+                // Cargo INPUT nodes in Slimefun terminology withdraw from source inventories.
+                SlimefunItem outputItem = SlimefunItem.getById("CARGO_NODE_OUTPUT");
+                if (outputItem == null) throw new IllegalStateException("Cargo output node not registered");
+                Location outputLocation = location.clone().add(0, 0, 1);
+                Block outputNode = outputLocation.getBlock();
+                outputNode.setType(Material.PLAYER_WALL_HEAD, false);
+                Directional skullFacing = (Directional) outputNode.getBlockData();
+                skullFacing.setFacing(BlockFace.SOUTH);
+                outputNode.setBlockData(skullFacing, false);
+                SlimefunBlockData outputData = blocks.createBlock(outputLocation, outputItem.getId());
+                if (outputData.getBlockMenu() == null || !outputData.isDataLoaded())
+                    throw new IllegalStateException("Native Cargo output node menu not loaded");
+                CargoNet cargoNet = CargoNet.getNetworkFromLocationOrCreate(outputLocation.clone().add(0, 0, 2));
+
                 ItemStack original = payloadItem.getItem().clone();
                 original.setAmount(15);
                 var meta = original.getItemMeta();
@@ -240,11 +275,11 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                 int[] slots = menu.getPreset().getSlotsAccessedByItemTransport(
                         menu, ItemTransportFlow.INSERT, original);
                 check.that(Arrays.equals(slots, new int[] {19, 20}), id + " cargo slots are input-only");
-                check.that(menu.pushItem(original.clone(), slots) == null, id + " initial item admitted by Cargo API");
+                check.that(insertViaCoreCargo(cargoNet, outputNode, block, original.clone()) == null, id + " initial item admitted by Cargo API");
                 barrelItem.getBlockTicker().tick(block, barrelItem, data);
                 check.that(barrel.visibleContents(block).safe()
                         && barrel.visibleContents(block).amount() == 15L, id + " first cargo delivery counted");
-                check.that(menu.pushItem(reencoded.clone(), slots) == null,
+                check.that(insertViaCoreCargo(cargoNet, outputNode, block, reencoded.clone()) == null,
                         id + " cosmetically reencoded item admitted by Cargo API");
                 barrelItem.getBlockTicker().tick(block, barrelItem, data);
                 check.that(barrel.visibleContents(block).safe()
@@ -256,7 +291,7 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                 var differentLoreMeta = differentLore.getItemMeta();
                 differentLoreMeta.lore(List.of(Component.text("A meaningful metadata difference")));
                 differentLore.setItemMeta(differentLoreMeta);
-                menu.pushItem(differentLore, slots);
+                insertViaCoreCargo(cargoNet, outputNode, block, differentLore);
                 barrelItem.getBlockTicker().tick(block, barrelItem, data);
                 check.that(barrel.visibleContents(block).safe()
                         && barrel.visibleContents(block).amount() == 36L,
@@ -273,7 +308,7 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                 check.that((id + "_SPOOF").equals(
                         Slimefun.getItemDataService().getItemData(differentIdentity).orElse(null)),
                         id + " spoof fixture has an actually distinct PDC ID");
-                ItemStack offeredRemainder = menu.pushItem(differentIdentity, slots);
+                ItemStack offeredRemainder = insertViaCoreCargo(cargoNet, outputNode, block, differentIdentity);
                 ItemStack staged = menu.getItemInSlot(19);
                 check.that((id + "_SPOOF").equals(
                         Slimefun.getItemDataService().getItemData(staged).orElse(null)),
