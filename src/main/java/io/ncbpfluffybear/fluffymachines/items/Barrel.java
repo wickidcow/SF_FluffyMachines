@@ -317,7 +317,11 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
     protected void tick(Block b) {
         BlockMenu inv = StorageCacheUtils.getMenu(b.getLocation());
         int capacity = getCapacity(b);
-        if (inv == null || !syncRegistration(inv, b, capacity)) return;
+        if (inv == null) return;
+        if (!syncRegistration(inv, b, capacity)) {
+            if (inv.hasViewer()) refreshStatus(inv, getStored(b), capacity);
+            return;
+        }
 
         for (int slot : INPUT_SLOTS) {
             acceptInput(inv, b, slot, capacity);
@@ -326,6 +330,9 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
         for (int ignored : OUTPUT_SLOTS) {
             pushOutput(inv, b, capacity);
         }
+        // A player or Cargo may have removed buffered output since the last tick.
+        // Refresh live viewers without rewriting identical status panes.
+        if (inv.hasViewer()) refreshStatus(inv, getStored(b), capacity);
     }
 
     void acceptInput(BlockMenu inv, Block b, int slot, int capacity) {
@@ -363,23 +370,24 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
 
                 ItemStack clone = new CustomItemStack(Utils.unKeyItem(displayItem), displayItem.getMaxStackSize());
 
-                if (inv.fits(clone, OUTPUT_SLOTS)) {
-                    int amount = clone.getMaxStackSize();
-
-                    setStored(b, stored - amount);
-                    inv.pushItem(clone, OUTPUT_SLOTS);
-                    updateMenu(b, inv, false, capacity);
-                }
+                transferOutput(inv, b, capacity, stored, clone);
 
             } else if (stored > 0) {   // Output remaining
 
                 ItemStack clone = new CustomItemStack(Utils.unKeyItem(displayItem), stored);
-                if (inv.fits(clone, OUTPUT_SLOTS)) {
-                    setStored(b, 0);
-                    inv.pushItem(clone, OUTPUT_SLOTS);
-                    updateMenu(b, inv, false, capacity);
-                }
+                transferOutput(inv, b, capacity, stored, clone);
             }
+        }
+    }
+
+    /** Move output first, then subtract only the amount confirmed accepted by the menu. */
+    private void transferOutput(BlockMenu inv, Block b, int capacity, int stored, ItemStack offered) {
+        ItemStack remainder = inv.pushItem(offered, OUTPUT_SLOTS);
+        int notInserted = remainder == null ? 0 : remainder.getAmount();
+        int accepted = BarrelTransferMath.accepted(offered.getAmount(), notInserted);
+        if (accepted > 0) {
+            setStored(b, stored - accepted);
+            updateMenu(b, inv, false, capacity);
         }
     }
 
@@ -421,10 +429,14 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
     }
 
     private BarrelContents<ItemStack> inspectContents(BlockMenu menu, Block b) {
+        return inspectContents(menu, getStored(b));
+    }
+
+    private BarrelContents<ItemStack> inspectContents(BlockMenu menu, int stored) {
         ItemStack display = menu.getItemInSlot(DISPLAY_SLOT);
         ItemStack first = menu.getItemInSlot(OUTPUT_SLOTS[0]);
         ItemStack second = menu.getItemInSlot(OUTPUT_SLOTS[1]);
-        return BarrelContents.inspect(getStored(b),
+        return BarrelContents.inspect(stored,
                 isRegisteredItem(display) ? Utils.unKeyItem(display) : null,
                 isRealItem(first) ? first : null, isRealItem(second) ? second : null,
                 this::matchMeta, ItemStack::getAmount);
@@ -502,16 +514,23 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
         String storedPercent = doubleRoundAndFade((double) stored / (double) capacity * 100);
         String storedStacks =
             doubleRoundAndFade((double) stored / (double) inv.getItemInSlot(DISPLAY_SLOT).getMaxStackSize());
-        // A persisted status pane can become stale after cargo ticks or server restarts.
-        // Keep the authoritative counter visible even when the menu has no viewer.
-        // Only replace the pane when its complete item representation differs.
+        // A barrel has two physical output slots in addition to its saved count.
+        // Include these in the displayed total; never rewrite the saved counter.
         refreshStatus(inv, stored, capacity);
         if (inv.getItemInSlot(DISPLAY_SLOT) != null) {
             itemName = Utils.getViewableName(inv.getItemInSlot(DISPLAY_SLOT));
         }
 
         if (showHologram.getValue() && isHologramEnabled(b)) {
-            updateHologram(b, itemName, " &9x" + stored + " &7(" + storedPercent + "&7%)");
+            BarrelContents<ItemStack> contents = inspectContents(inv, stored);
+            if (contents.safe()) {
+                long visible = contents.amount();
+                String visiblePercent = capacity > 0
+                        ? doubleRoundAndFade((double) visible / capacity * 100) : "0";
+                updateHologram(b, itemName, " &9x" + visible + " &7(" + visiblePercent + "&7%)");
+            } else {
+                updateHologram(b, itemName, "&cStorage needs review");
+            }
         }
         if (stored == 0 && !isRealItem(inv.getItemInSlot(OUTPUT_SLOTS[0]))
                 && !isRealItem(inv.getItemInSlot(OUTPUT_SLOTS[1]))) {
@@ -522,13 +541,24 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
         }
     }
     private void refreshStatus(BlockMenu menu, int stored, int capacity) {
-        ItemStack display = menu.getItemInSlot(DISPLAY_SLOT);
-        int stackSize = display == null ? 64 : Math.max(1, display.getMaxStackSize());
-        String percent = capacity > 0 ? doubleRoundAndFade((double) stored / capacity * 100) : "0";
-        String stacks = doubleRoundAndFade((double) stored / stackSize);
-        ItemStack expected = new CustomItemStack(
-                Material.LIME_STAINED_GLASS_PANE, "&6Stored items: &e" + stored + " / " + capacity,
-                "&b" + stacks + " stacks &8| &7" + percent + "&7%");
+        BarrelContents<ItemStack> contents = inspectContents(menu, stored);
+        ItemStack expected;
+        if (!contents.safe()) {
+            // Never claim a misleading zero or combine mismatched physical stacks.
+            expected = new CustomItemStack(Material.RED_STAINED_GLASS_PANE,
+                    "&cStorage needs review", "&7Saved count/output identity conflict",
+                    "&cDo not break this barrel; ask an administrator");
+        } else {
+            long total = contents.amount();
+            ItemStack display = menu.getItemInSlot(DISPLAY_SLOT);
+            int stackSize = display == null ? 64 : Math.max(1, display.getMaxStackSize());
+            String percent = capacity > 0 ? doubleRoundAndFade((double) total / capacity * 100) : "0";
+            String stacks = doubleRoundAndFade((double) total / stackSize);
+            expected = new CustomItemStack(Material.LIME_STAINED_GLASS_PANE,
+                    "&6Stored items: &e" + total + " / " + capacity,
+                    "&b" + stacks + " stacks &8| &7" + percent + "&7%",
+                    "&7Includes both output slots");
+        }
         if (!expected.equals(menu.getItemInSlot(STATUS_SLOT))) {
             menu.replaceExistingItem(STATUS_SLOT, expected);
         }
