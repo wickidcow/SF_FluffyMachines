@@ -457,7 +457,35 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
             updateMenu(b, menu, false, capacity);
         } else if (contents.item() == null && isRegisteredItem(current)) {
             updateMenu(b, menu, false, capacity);
+        } else if (contents.item() != null && restoreCanonicalPresentation(menu)) {
+            // Cosmetic source-template repair only. Keep every persisted reserve
+            // count and physical output stack untouched; regenerated outputs use
+            // the canonical current addon formatting on subsequent tick passes.
+            updateMenu(b, menu, false, capacity);
         }
+        return true;
+    }
+
+    /**
+     * Re-encode the private display template only when the current registered
+     * Slimefun item has the exact same ID, visible text and non-cosmetic meta.
+     * Never rewrite player inventories or physically buffered output items.
+     */
+    private boolean restoreCanonicalPresentation(BlockMenu menu) {
+        ItemStack keyed = menu.getItemInSlot(DISPLAY_SLOT);
+        if (!isRegisteredItem(keyed)) return false;
+        ItemStack storedTemplate = Utils.unKeyItem(keyed);
+        String itemId = Slimefun.getItemDataService()
+                .getItemData(storedTemplate.getItemMeta()).orElse(null);
+        if (itemId == null) return false;
+        SlimefunItem currentItem = SlimefunItem.getById(itemId);
+        if (currentItem == null) return false;
+        ItemStack canonical = currentItem.getItem().clone();
+        canonical.setAmount(1);
+        if (storedTemplate.isSimilar(canonical) || !matchMeta(storedTemplate, canonical)) {
+            return false;
+        }
+        menu.replaceExistingItem(DISPLAY_SLOT, Utils.keyItem(canonical));
         return true;
     }
 
@@ -487,25 +515,55 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
         String firstId = Slimefun.getItemDataService().getItemData(first).orElse(null);
         String secondId = Slimefun.getItemDataService().getItemData(second).orElse(null);
         if (!java.util.Objects.equals(firstId, secondId)) return false;
-        if (first.equals(second)) return true;
+        if (first.equals(second)) return item1.isSimilar(item2);
 
-        // Legacy and modern serializers can encode the *same* Slimefun display name
-        // differently (extra components versus a single text component). Only ignore
-        // that cosmetic representation when BOTH items carry the exact same Slimefun ID
-        // and their visible, unformatted names are identical. All other metadata,
-        // including custom model data, lore and addon PDC, must still match.
-        // Follow the active Slimefun core's item-ID key instead of assuming a namespace.
+        // Cosmetic formatting is not item identity. Legacy components may differ
+        // in display-name AND lore tree structure, while retaining identical visible
+        // text. Compare only for a confirmed, identical Slimefun PDC item ID;
+        // preserve every other metadata field (model, custom data, enchantments,
+        // attributes, nested PDC, etc.). Unknown/vanilla items remain strict.
         if (firstId == null) return false;
-        if (first.displayName() == null || second.displayName() == null) return false;
-        if (!samePlainDisplayName(first.displayName(), second.displayName())) return false;
+        return presentationOnlyDifference(item1, item2);
+    }
+    static boolean presentationOnlyDifference(ItemStack one, ItemStack two) {
+        ItemStack firstItem = one.clone();
+        ItemStack secondItem = two.clone();
+        ItemMeta first = firstItem.getItemMeta();
+        ItemMeta second = secondItem.getItemMeta();
+        Component firstName = first.displayName();
+        Component secondName = second.displayName();
+        if (firstName == null ? secondName != null
+                : !samePlainDisplayName(firstName, secondName)) return false;
+        if (!samePlainLore(first.lore(), second.lore())) return false;
+
+        // Strip only the presentation components FROM INDEPENDENT STACK CLONES.
+        // ItemStack.isSimilar retains stricter comparison of additional data
+        // components not represented by ItemMeta.equals. Real stacks, lore and
+        // PDC remain untouched.
         first.displayName(null);
         second.displayName(null);
-        return first.equals(second);
+        first.lore(null);
+        second.lore(null);
+        firstItem.setItemMeta(first);
+        secondItem.setItemMeta(second);
+        return firstItem.isSimilar(secondItem);
     }
     static boolean samePlainDisplayName(Component first, Component second) {
         if (first == null || second == null) return false;
         PlainTextComponentSerializer plain = PlainTextComponentSerializer.plainText();
         return plain.serialize(first).equals(plain.serialize(second));
+    }
+    static boolean samePlainLore(List<Component> first, List<Component> second) {
+        if (first == null || second == null) return first == second;
+        if (first.size() != second.size()) return false;
+        PlainTextComponentSerializer plain = PlainTextComponentSerializer.plainText();
+        for (int i = 0; i < first.size(); i++) {
+            if (first.get(i) == null || second.get(i) == null
+                    || !plain.serialize(first.get(i)).equals(plain.serialize(second.get(i)))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**

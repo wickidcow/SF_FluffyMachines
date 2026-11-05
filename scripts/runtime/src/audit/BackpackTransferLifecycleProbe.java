@@ -16,6 +16,7 @@ import io.github.thebusybiscuit.slimefun4.core.networks.cargo.CargoNet;
 import io.github.thebusybiscuit.slimefun4.utils.itemstack.ItemStackWrapper;
 import io.ncbpfluffybear.fluffymachines.items.Barrel;
 import io.ncbpfluffybear.fluffymachines.utils.BarrelDisplayManager;
+import io.ncbpfluffybear.fluffymachines.utils.Utils;
 import io.ncbpfluffybear.fluffymachines.machines.BackpackLoader;
 import io.ncbpfluffybear.fluffymachines.machines.BackpackUnloader;
 import java.io.IOException;
@@ -40,6 +41,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.Chunk;
@@ -118,6 +120,7 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
         List<Scenario> scenarios = List.of(
                 new Scenario("barrel-display-and-quantities", this::barrelDisplayLifecycle),
                 new Scenario("barrel-slimefun-cargo-metadata", this::barrelSlimefunCargoMetadata),
+                new Scenario("barrel-canonical-presentation-self-heal", this::barrelCanonicalPresentationSelfHeal),
                 new Scenario("barrel-cargo-restart-write", this::barrelRestartWrite),
                 new Scenario("barrel-actual-cargo-network", this::barrelActualCargoNetwork),
                 new Scenario("normal-loader", () -> normal(true)),
@@ -369,15 +372,20 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                 original.setAmount(15);
                 var meta = original.getItemMeta();
                 meta.displayName(Component.text("Cargo regression " + id));
+                meta.lore(List.of(Component.text("Original: " + id),
+                        Component.text("Stored component version", NamedTextColor.GRAY)));
                 original.setItemMeta(meta);
                 Slimefun.getItemDataService().setItemData(original, id);
                 ItemStack reencoded = original.clone();
                 reencoded.setAmount(21);
                 var reencodedMeta = reencoded.getItemMeta();
                 reencodedMeta.displayName(Component.text("").append(Component.text("Cargo regression " + id)));
+                reencodedMeta.lore(List.of(
+                        Component.text("").append(Component.text("Original: " + id)),
+                        Component.text("").append(Component.text("Stored component version", NamedTextColor.GRAY))));
                 reencoded.setItemMeta(reencodedMeta);
                 check.that(!original.getItemMeta().equals(reencoded.getItemMeta()),
-                        id + " genuinely has differently structured Adventure names");
+                        id + " genuinely has differently structured Adventure names and lore");
 
                 int[] slots = menu.getPreset().getSlotsAccessedByItemTransport(
                         menu, ItemTransportFlow.INSERT, original);
@@ -391,7 +399,9 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                 barrelItem.getBlockTicker().tick(block, barrelItem, data);
                 check.that(barrel.visibleContents(block).safe()
                         && barrel.visibleContents(block).amount() == 36L,
-                        id + " compatible formatting merges into existing barrel with no loss");
+                        id + " equivalent legacy lore formatting merges without losing stock");
+                check.that(barrel.getStored(block) >= 0,
+                        id + " persisted reserve remains nonnegative after formatting merge");
 
                 ItemStack differentLore = reencoded.clone();
                 differentLore.setAmount(3);
@@ -440,6 +450,67 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                 check.that(menu.getItemInSlot(19) != null && menu.getItemInSlot(19).getAmount() == 5,
                         id + " rejected Slimefun ID remains physically in Cargo input slot");
             }
+            return check;
+        });
+    }
+
+
+    /**
+     * Start with a filled barrel and a historically encoded template, without a
+     * fresh input to trigger a change. A production tick must refresh only its
+     * display template to the current registered Slimefun item without changing
+     * the 37 stored items or their owner/data PDC.
+     */
+    private CompletableFuture<Check> barrelCanonicalPresentationSelfHeal() {
+        return owner(() -> {
+            Check check = new Check();
+            SlimefunItem barrelItem = SlimefunItem.getById("SMALL_FLUFFY_BARREL");
+            SlimefunItem payload = SlimefunItem.getById("REINFORCED_PLATE");
+            if (!(barrelItem instanceof Barrel barrel) || payload == null)
+                throw new IllegalStateException("Canonical barrel or metadata payload not registered");
+            fixtureNumber++;
+            Location location = new Location(world, 1792 + fixtureNumber * 128, 64, 1664);
+            Chunk chunk = holdChunk(location);
+            blocks.getChunkData(chunk);
+            Block block = location.getBlock();
+            block.setType(barrelItem.getItem().getType(), false);
+            SlimefunBlockData data = blocks.createBlock(location, barrelItem.getId());
+            BlockMenu menu = data.getBlockMenu();
+            if (menu == null || !data.isDataLoaded())
+                throw new IllegalStateException("Native formatting repair barrel did not load");
+            barrel.setStored(block, 37);
+
+            ItemStack canonical = payload.getItem().clone();
+            canonical.setAmount(1);
+            ItemStack legacy = canonical.clone();
+            var legacyMeta = legacy.getItemMeta();
+            Component originalName = legacyMeta.displayName();
+            List<Component> originalLore = legacyMeta.lore();
+            if (originalName != null)
+                legacyMeta.displayName(Component.text("").append(originalName));
+            if (originalLore != null)
+                legacyMeta.lore(originalLore.stream().map(line -> Component.text("").append(line)).toList());
+            legacy.setItemMeta(legacyMeta);
+            check.that(!legacy.isSimilar(canonical),
+                    "Historical display template has structurally different but visibly identical components");
+            ItemStack keyed = Utils.keyItem(legacy);
+            menu.replaceExistingItem(31, keyed);
+            check.that(barrel.visibleContents(block).safe() && barrel.visibleContents(block).amount() == 37L,
+                    "Before repair the exact 37-item stored ledger remains readable");
+
+            barrelItem.getBlockTicker().tick(block, barrelItem, data);
+            ItemStack repaired = menu.getItemInSlot(31);
+            check.that(repaired != null && repaired.getType() == canonical.getType(),
+                    "Restored presentation keeps the historical material");
+            ItemStack restored = Utils.unKeyItem(repaired);
+            check.that(restored.isSimilar(canonical),
+                    "Saved template automatically adopts the registered, exact canonical presentation");
+            check.that(barrel.visibleContents(block).safe() && barrel.visibleContents(block).amount() == 37L,
+                    "Canonical formatting repair preserves 37 items through reserve/output refill");
+            check.that(payload.getId().equals(
+                    Slimefun.getItemDataService().getItemData(restored.getItemMeta()).orElse(null)),
+                    "Self-healed template keeps the same registered Slimefun identity");
+
             return check;
         });
     }
