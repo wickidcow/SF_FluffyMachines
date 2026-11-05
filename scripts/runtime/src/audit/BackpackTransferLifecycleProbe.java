@@ -113,6 +113,7 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
         List<Scenario> scenarios = List.of(
                 new Scenario("barrel-display-and-quantities", this::barrelDisplayLifecycle),
                 new Scenario("barrel-slimefun-cargo-metadata", this::barrelSlimefunCargoMetadata),
+                new Scenario("barrel-cargo-restart-write", this::barrelRestartWrite),
                 new Scenario("normal-loader", () -> normal(true)),
                 new Scenario("normal-unloader", () -> normal(false)),
                 new Scenario("legacy-lore-loader", () -> normal(true, true)),
@@ -159,6 +160,46 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
      * Native Cargo-facing insertion of two different registered Slimefun items.
      * Cosmetic Adventure component layouts may vary; lore and Slimefun identity may not.
      */
+    /** Create a real Slimefun barrel persisted across a full Paper process restart. */
+    private CompletableFuture<Check> barrelRestartWrite() {
+        return owner(() -> {
+            Check check = new Check();
+            fixtureNumber++;
+            Location loc = new Location(world, 1536 + fixtureNumber * 128, 64, 1536);
+            Chunk chunk = holdChunk(loc);
+            blocks.getChunkData(chunk);
+            SlimefunItem sfBarrel = SlimefunItem.getById("SMALL_FLUFFY_BARREL");
+            SlimefunItem sfMaterial = SlimefunItem.getById("REINFORCED_PLATE");
+            if (!(sfBarrel instanceof Barrel barrel) || sfMaterial == null)
+                throw new IllegalStateException("Native restart barrel or Slimefun input is missing");
+            Block block = loc.getBlock();
+            block.setType(sfBarrel.getItem().getType(), false);
+            SlimefunBlockData data = blocks.createBlock(loc, sfBarrel.getId());
+            BlockMenu menu = data.getBlockMenu();
+            if (menu == null || !data.isDataLoaded())
+                throw new IllegalStateException("Native restart barrel menu is unavailable");
+            barrel.setStored(block, 0);
+            ItemStack cargo = sfMaterial.getItem().clone();
+            cargo.setAmount(17);
+            int[] inputs = menu.getPreset().getSlotsAccessedByItemTransport(menu, ItemTransportFlow.INSERT, cargo);
+            check.that(menu.pushItem(cargo.clone(), inputs) == null, "first 17 Slimefun cargo items inserted");
+            sfBarrel.getBlockTicker().tick(block, sfBarrel, data);
+            cargo.setAmount(120);
+            check.that(menu.pushItem(cargo, inputs) == null, "second 120 Slimefun cargo items inserted");
+            sfBarrel.getBlockTicker().tick(block, sfBarrel, data);
+            check.that(barrel.getStored(block) == 9, "saved reserve is 9 before restart");
+            check.that(barrel.visibleContents(block).safe() && barrel.visibleContents(block).amount() == 137L,
+                    "137 total Slimefun items are intact before restart");
+            check.that(menu.getItemInSlot(24) != null && menu.getItemInSlot(24).getAmount() == 64
+                    && menu.getItemInSlot(25) != null && menu.getItemInSlot(25).getAmount() == 64,
+                    "both native output slots are full before restart");
+            writeJson(getDataFolder().toPath().resolve("barrel-restart-fixture.json"),
+                    Map.of("x", loc.getBlockX(), "y", loc.getBlockY(), "z", loc.getBlockZ(),
+                            "id", sfBarrel.getId(), "item", sfMaterial.getId(), "stored", 9, "total", 137));
+            return check;
+        });
+    }
+
     private CompletableFuture<Check> barrelSlimefunCargoMetadata() {
         return owner(() -> {
             Check check = new Check();
@@ -869,7 +910,58 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                                 }));
                     }));
         }
-        return chain;
+        // A separate process must reload both output buffers and the durable reserve.
+        return chain.thenCompose(v -> {
+            final Map<String, Object> fixture;
+            try {
+                Type mapType = new TypeToken<Map<String, Object>>() {}.getType();
+                fixture = JSON.fromJson(Files.readString(
+                        getDataFolder().toPath().resolve("barrel-restart-fixture.json")), mapType);
+            } catch (IOException failure) {
+                return CompletableFuture.failedFuture(failure);
+            }
+            if (fixture == null) return CompletableFuture.failedFuture(
+                    new IllegalStateException("Missing barrel restart fixture"));
+            return ownerCompose(() -> {
+                Location location = new Location(world, ((Number) fixture.get("x")).intValue(),
+                        ((Number) fixture.get("y")).intValue(), ((Number) fixture.get("z")).intValue());
+                holdChunk(location);
+                SlimefunBlockData data = blocks.getBlockData(location);
+                if (data == null) throw new IllegalStateException("Barrel block data missing after Paper restart");
+                if (!data.isDataLoaded()) blocks.loadBlockData(data);
+                return waitUntil(() -> data.isDataLoaded() && data.getBlockMenu() != null, 100)
+                        .thenCompose(v2 -> owner(() -> {
+                            BlockMenu menu = data.getBlockMenu();
+                            SlimefunItem sf = SlimefunItem.getById((String) fixture.get("id"));
+                            if (!(sf instanceof Barrel barrel) || menu == null)
+                                throw new IllegalStateException("Missing barrel menu after restart");
+                            Block block = location.getBlock();
+                            Check check = new Check();
+                            check.that(fixture.get("id").equals(data.getSfId()),
+                                    "barrel registration survives a separate Paper process");
+                            check.that(barrel.getStored(block) == ((Number) fixture.get("stored")).intValue(),
+                                    "saved Slimefun barrel reserve survives restart unchanged");
+                            check.that(barrel.visibleContents(block).safe()
+                                    && barrel.visibleContents(block).amount() == ((Number) fixture.get("total")).longValue(),
+                                    "both buffered outputs and reserve total survive restart");
+                            ItemStack outputA = menu.getItemInSlot(24), outputB = menu.getItemInSlot(25);
+                            check.that(outputA != null && outputA.getAmount() == 64
+                                    && outputB != null && outputB.getAmount() == 64,
+                                    "two physical output buffers survive Paper restart");
+                            check.that(fixture.get("item").equals(Slimefun.getItemDataService()
+                                            .getItemData(outputA).orElse(null))
+                                    && fixture.get("item").equals(Slimefun.getItemDataService()
+                                            .getItemData(outputB).orElse(null)),
+                                    "Slimefun item identities persist in both output slots");
+                            sf.getBlockTicker().tick(block, sf, data);
+                            check.that(barrel.visibleContents(block).safe()
+                                    && barrel.visibleContents(block).amount() == 137L,
+                                    "first post-restart machine tick conserves all items");
+                            results.add(check.result("restart-barrel-cargo-contents"));
+                            return (Void) null;
+                        }));
+            });
+        });
     }
 
     private void remember(Machine m, Bag a, boolean legacy) {
