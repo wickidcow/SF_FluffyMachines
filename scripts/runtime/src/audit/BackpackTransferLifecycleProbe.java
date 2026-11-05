@@ -12,6 +12,8 @@ import io.github.thebusybiscuit.slimefun4.api.items.SlimefunItem;
 import io.github.thebusybiscuit.slimefun4.api.player.PlayerBackpack;
 import io.github.thebusybiscuit.slimefun4.core.attributes.EnergyNetComponent;
 import io.github.thebusybiscuit.slimefun4.implementation.Slimefun;
+import io.github.thebusybiscuit.slimefun4.core.networks.cargo.CargoNet;
+import io.github.thebusybiscuit.slimefun4.utils.itemstack.ItemStackWrapper;
 import io.ncbpfluffybear.fluffymachines.items.Barrel;
 import io.ncbpfluffybear.fluffymachines.utils.BarrelDisplayManager;
 import io.ncbpfluffybear.fluffymachines.machines.BackpackLoader;
@@ -47,6 +49,9 @@ import org.bukkit.NamespacedKey;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.World;
 import org.bukkit.block.Block;
+import org.bukkit.block.BlockFace;
+import org.bukkit.block.data.Directional;
+import java.lang.reflect.Method;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.ItemDisplay;
@@ -54,6 +59,8 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
 import me.mrCookieSlime.Slimefun.api.inventory.BlockMenu;
+import me.mrCookieSlime.Slimefun.api.item_transport.ItemTransportFlow;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 
 /** Exercises the supplied production addon; it contains no replacement transfer implementation. */
 public final class BackpackTransferLifecycleProbe extends JavaPlugin {
@@ -110,6 +117,9 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
     private CompletableFuture<Void> runChecks() {
         List<Scenario> scenarios = List.of(
                 new Scenario("barrel-display-and-quantities", this::barrelDisplayLifecycle),
+                new Scenario("barrel-slimefun-cargo-metadata", this::barrelSlimefunCargoMetadata),
+                new Scenario("barrel-cargo-restart-write", this::barrelRestartWrite),
+                new Scenario("barrel-actual-cargo-network", this::barrelActualCargoNetwork),
                 new Scenario("normal-loader", () -> normal(true)),
                 new Scenario("normal-unloader", () -> normal(false)),
                 new Scenario("legacy-lore-loader", () -> normal(true, true)),
@@ -152,6 +162,288 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
      * Exercises the real registered Fluffy Barrel ticker and Bukkit ItemDisplay entities.
      * Inputs and output slots remain physical inventories; only the presentation cache is delayed.
      */
+    /**
+     * Native Cargo-facing insertion of two different registered Slimefun items.
+     * Cosmetic Adventure component layouts may vary; lore and Slimefun identity may not.
+     */
+    /** Run the actual production CargoNetworkTask with real wall-head nodes and a chest source. */
+    private void runNativeCargoNetwork(CargoNet network, Location input, Location output, boolean withOutput) {
+        try {
+            Class<?> task = Class.forName("io.github.thebusybiscuit.slimefun4.core.networks.cargo.CargoNetworkTask");
+            var constructor = task.getDeclaredConstructor(CargoNet.class, Map.class, Map.class);
+            constructor.setAccessible(true);
+            Map<Integer, List<Location>> destinations = withOutput ? Map.of(0, List.of(output)) : Map.of();
+            Runnable work = (Runnable) constructor.newInstance(network, Map.of(input, 0), destinations);
+            work.run();
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("Native production Cargo network task could not execute", failure);
+        }
+    }
+
+    private Block nativeCargoNode(Location location, String id, BlockFace facing) {
+        SlimefunItem node = SlimefunItem.getById(id);
+        if (node == null) throw new IllegalStateException("Missing registered node " + id);
+        Block block = location.getBlock();
+        block.setType(Material.PLAYER_WALL_HEAD, false);
+        Directional data = (Directional) block.getBlockData();
+        data.setFacing(facing);
+        block.setBlockData(data, false);
+        SlimefunBlockData sfData = blocks.createBlock(location, node.getId());
+        if (!sfData.isDataLoaded() || sfData.getBlockMenu() == null)
+            throw new IllegalStateException("Cargo node is not initialized " + id);
+        StorageCacheUtils.setData(location, "frequency", "0");
+        return block;
+    }
+
+    /** Prove one input node does not deliver into a barrel; a network output node does. */
+    private CompletableFuture<Check> barrelActualCargoNetwork() {
+        return owner(() -> {
+            Check check = new Check();
+            fixtureNumber++;
+            Location base = new Location(world, 1536 + fixtureNumber * 128, 64, 1536);
+            Chunk chunk = holdChunk(base);
+            blocks.getChunkData(chunk);
+            SlimefunItem barrelItem = SlimefunItem.getById("SMALL_FLUFFY_BARREL");
+            SlimefunItem materialItem = SlimefunItem.getById("REINFORCED_PLATE");
+            SlimefunItem managerItem = SlimefunItem.getById("CARGO_MANAGER");
+            if (!(barrelItem instanceof Barrel barrel) || materialItem == null || managerItem == null)
+                throw new IllegalStateException("Native Cargo network registration is incomplete");
+            Block destination = base.getBlock();
+            destination.setType(barrelItem.getItem().getType(), false);
+            SlimefunBlockData barrelData = blocks.createBlock(base, barrelItem.getId());
+            BlockMenu menu = barrelData.getBlockMenu();
+            if (menu == null || !barrelData.isDataLoaded())
+                throw new IllegalStateException("Native Cargo destination barrel menu missing");
+            barrel.setStored(destination, 0);
+
+            Location chestLocation = base.clone().add(2, 0, 0);
+            Block source = chestLocation.getBlock();
+            source.setType(Material.CHEST, false);
+            org.bukkit.block.Chest chest = (org.bukkit.block.Chest) source.getState(false);
+            var inventory = chest.getBlockInventory();
+            ItemStack cargo = new ItemStack(materialItem.getItem().getType(), 64);
+            cargo.setItemMeta(materialItem.getItem().getItemMeta());
+            inventory.setItem(0, cargo.clone());
+
+            Location inputLocation = base.clone().add(1, 0, 0);
+            nativeCargoNode(inputLocation, "CARGO_NODE_INPUT", BlockFace.WEST);
+            Location outputLocation = base.clone().add(0, 0, 1);
+            nativeCargoNode(outputLocation, "CARGO_NODE_OUTPUT", BlockFace.SOUTH);
+            Location managerLocation = base.clone().add(1, 0, 1);
+            Block regulator = managerLocation.getBlock();
+            regulator.setType(managerItem.getItem().getType(), false);
+            blocks.createBlock(managerLocation, managerItem.getId());
+            CargoNet cargoNet = CargoNet.getNetworkFromLocationOrCreate(managerLocation);
+
+            runNativeCargoNetwork(cargoNet, inputLocation, outputLocation, false);
+            check.that(inventory.getItem(0) != null && inventory.getItem(0).getAmount() == 64,
+                    "a Cargo INPUT node without any output destination returns items to its source");
+            check.that(barrel.visibleContents(destination).safe()
+                    && barrel.visibleContents(destination).amount() == 0L,
+                    "source-only Cargo node cannot magically deposit into the barrel");
+
+            runNativeCargoNetwork(cargoNet, inputLocation, outputLocation, true);
+            check.that(inventory.getItem(0) == null,
+                    "production CargoNetworkTask withdraws 64 items from source chest");
+            check.that(menu.getItemInSlot(19) != null && menu.getItemInSlot(19).getAmount() == 64,
+                    "registered Cargo OUTPUT node physically deposits into barrel input slot");
+            barrelItem.getBlockTicker().tick(destination, barrelItem, barrelData);
+            check.that(barrel.visibleContents(destination).safe()
+                    && barrel.visibleContents(destination).amount() == 64L,
+                    "barrel stores all 64 routed Slimefun items without loss or duplication");
+
+            ItemStack another = cargo.clone();
+            another.setAmount(31);
+            inventory.setItem(0, another);
+            runNativeCargoNetwork(cargoNet, inputLocation, outputLocation, true);
+            barrelItem.getBlockTicker().tick(destination, barrelItem, barrelData);
+            check.that(inventory.getItem(0) == null && barrel.visibleContents(destination).safe()
+                    && barrel.visibleContents(destination).amount() == 95L,
+                    "second real Cargo network route preserves all 95 cumulative items");
+            check.that("REINFORCED_PLATE".equals(Slimefun.getItemDataService()
+                    .getItemData(menu.getItemInSlot(24)).orElse(null)),
+                    "routed Slimefun item identity survives actual network handling");
+            ItemStack status = menu.getItemInSlot(22);
+            check.that(status != null && status.hasItemMeta()
+                    && PlainTextComponentSerializer.plainText()
+                            .serialize(status.getItemMeta().displayName()).contains("95 /"),
+                    "barrel GUI accurately reports actual Cargo network output and reserve");
+            return check;
+        });
+    }
+
+    /** Create a real Slimefun barrel persisted across a full Paper process restart. */
+    private CompletableFuture<Check> barrelRestartWrite() {
+        return owner(() -> {
+            Check check = new Check();
+            fixtureNumber++;
+            Location loc = new Location(world, 1536 + fixtureNumber * 128, 64, 1536);
+            Chunk chunk = holdChunk(loc);
+            blocks.getChunkData(chunk);
+            SlimefunItem sfBarrel = SlimefunItem.getById("SMALL_FLUFFY_BARREL");
+            SlimefunItem sfMaterial = SlimefunItem.getById("REINFORCED_PLATE");
+            if (!(sfBarrel instanceof Barrel barrel) || sfMaterial == null)
+                throw new IllegalStateException("Native restart barrel or Slimefun input is missing");
+            Block block = loc.getBlock();
+            block.setType(sfBarrel.getItem().getType(), false);
+            SlimefunBlockData data = blocks.createBlock(loc, sfBarrel.getId());
+            BlockMenu menu = data.getBlockMenu();
+            if (menu == null || !data.isDataLoaded())
+                throw new IllegalStateException("Native restart barrel menu is unavailable");
+            barrel.setStored(block, 0);
+            ItemStack cargo = sfMaterial.getItem().clone();
+            cargo.setAmount(17);
+            int[] inputs = menu.getPreset().getSlotsAccessedByItemTransport(menu, ItemTransportFlow.INSERT, cargo);
+            check.that(menu.pushItem(cargo.clone(), inputs) == null, "first 17 Slimefun cargo items inserted");
+            sfBarrel.getBlockTicker().tick(block, sfBarrel, data);
+            cargo.setAmount(120);
+            check.that(menu.pushItem(cargo, inputs) == null, "second 120 Slimefun cargo items inserted");
+            sfBarrel.getBlockTicker().tick(block, sfBarrel, data);
+            check.that(barrel.getStored(block) == 9, "saved reserve is 9 before restart");
+            check.that(barrel.visibleContents(block).safe() && barrel.visibleContents(block).amount() == 137L,
+                    "137 total Slimefun items are intact before restart");
+            check.that(menu.getItemInSlot(24) != null && menu.getItemInSlot(24).getAmount() == 64
+                    && menu.getItemInSlot(25) != null && menu.getItemInSlot(25).getAmount() == 64,
+                    "both native output slots are full before restart");
+            writeJson(getDataFolder().toPath().resolve("barrel-restart-fixture.json"),
+                    Map.of("x", loc.getBlockX(), "y", loc.getBlockY(), "z", loc.getBlockZ(),
+                            "id", sfBarrel.getId(), "item", sfMaterial.getId(), "stored", 9, "total", 137));
+            return check;
+        });
+    }
+
+    /** Invoke the actual CargoNetworkTask -> CargoUtils.insert path on a real registered output node. */
+    private ItemStack insertViaCoreCargo(CargoNet network, Block outputNode, Block target, ItemStack stack) {
+        try {
+            Class<?> util = Class.forName("io.github.thebusybiscuit.slimefun4.core.networks.cargo.CargoUtils");
+            Class<?> networkBase = Class.forName("io.github.thebusybiscuit.slimefun4.core.networks.cargo.AbstractItemNetwork");
+            Method insert = util.getDeclaredMethod("insert", networkBase, Map.class, Block.class, Block.class,
+                    boolean.class, ItemStack.class, ItemStackWrapper.class);
+            insert.setAccessible(true);
+            return (ItemStack) insert.invoke(null, network, new java.util.HashMap<Location, org.bukkit.inventory.Inventory>(),
+                    outputNode, target, false, stack, ItemStackWrapper.wrap(stack));
+        } catch (ReflectiveOperationException failure) {
+            throw new IllegalStateException("Production CargoUtils.insert could not run in native fixture", failure);
+        }
+    }
+
+    private CompletableFuture<Check> barrelSlimefunCargoMetadata() {
+        return owner(() -> {
+            Check check = new Check();
+            SlimefunItem barrelItem = SlimefunItem.getById("SMALL_FLUFFY_BARREL");
+            if (!(barrelItem instanceof Barrel barrel)) {
+                throw new IllegalStateException("Registered Fluffy Barrel missing");
+            }
+            for (String id : List.of("REINFORCED_PLATE", "STEEL_INGOT")) {
+                SlimefunItem payloadItem = SlimefunItem.getById(id);
+                if (payloadItem == null) throw new IllegalStateException("Native Slimefun item missing: " + id);
+                fixtureNumber++;
+                Location location = new Location(world, 1536 + fixtureNumber * 128, 64, 1536);
+                Chunk chunk = holdChunk(location);
+                blocks.getChunkData(chunk);
+                Block block = location.getBlock();
+                block.setType(barrelItem.getItem().getType(), false);
+                SlimefunBlockData data = blocks.createBlock(location, barrelItem.getId());
+                BlockMenu menu = data.getBlockMenu();
+                if (menu == null || !data.isDataLoaded()) {
+                    throw new IllegalStateException("Native Cargo barrel menu is unavailable: " + id);
+                }
+                barrel.setStored(block, 0);
+
+                // This is the physical Cargo OUTPUT node: it inserts into the attached barrel.
+                // Cargo INPUT nodes in Slimefun terminology withdraw from source inventories.
+                SlimefunItem outputItem = SlimefunItem.getById("CARGO_NODE_OUTPUT");
+                if (outputItem == null) throw new IllegalStateException("Cargo output node not registered");
+                Location outputLocation = location.clone().add(0, 0, 1);
+                Block outputNode = outputLocation.getBlock();
+                outputNode.setType(Material.PLAYER_WALL_HEAD, false);
+                Directional skullFacing = (Directional) outputNode.getBlockData();
+                skullFacing.setFacing(BlockFace.SOUTH);
+                outputNode.setBlockData(skullFacing, false);
+                SlimefunBlockData outputData = blocks.createBlock(outputLocation, outputItem.getId());
+                if (outputData.getBlockMenu() == null || !outputData.isDataLoaded())
+                    throw new IllegalStateException("Native Cargo output node menu not loaded");
+                CargoNet cargoNet = CargoNet.getNetworkFromLocationOrCreate(outputLocation.clone().add(0, 0, 2));
+
+                ItemStack original = payloadItem.getItem().clone();
+                original.setAmount(15);
+                var meta = original.getItemMeta();
+                meta.displayName(Component.text("Cargo regression " + id));
+                original.setItemMeta(meta);
+                Slimefun.getItemDataService().setItemData(original, id);
+                ItemStack reencoded = original.clone();
+                reencoded.setAmount(21);
+                var reencodedMeta = reencoded.getItemMeta();
+                reencodedMeta.displayName(Component.text("").append(Component.text("Cargo regression " + id)));
+                reencoded.setItemMeta(reencodedMeta);
+                check.that(!original.getItemMeta().equals(reencoded.getItemMeta()),
+                        id + " genuinely has differently structured Adventure names");
+
+                int[] slots = menu.getPreset().getSlotsAccessedByItemTransport(
+                        menu, ItemTransportFlow.INSERT, original);
+                check.that(Arrays.equals(slots, new int[] {19, 20}), id + " cargo slots are input-only");
+                check.that(insertViaCoreCargo(cargoNet, outputNode, block, original.clone()) == null, id + " initial item admitted by Cargo API");
+                barrelItem.getBlockTicker().tick(block, barrelItem, data);
+                check.that(barrel.visibleContents(block).safe()
+                        && barrel.visibleContents(block).amount() == 15L, id + " first cargo delivery counted");
+                check.that(insertViaCoreCargo(cargoNet, outputNode, block, reencoded.clone()) == null,
+                        id + " cosmetically reencoded item admitted by Cargo API");
+                barrelItem.getBlockTicker().tick(block, barrelItem, data);
+                check.that(barrel.visibleContents(block).safe()
+                        && barrel.visibleContents(block).amount() == 36L,
+                        id + " compatible formatting merges into existing barrel with no loss");
+
+                ItemStack differentLore = reencoded.clone();
+                differentLore.setAmount(3);
+                var differentLoreMeta = differentLore.getItemMeta();
+                differentLoreMeta.lore(List.of(Component.text("A meaningful metadata difference")));
+                differentLore.setItemMeta(differentLoreMeta);
+                insertViaCoreCargo(cargoNet, outputNode, block, differentLore);
+                barrelItem.getBlockTicker().tick(block, barrelItem, data);
+                check.that(barrel.visibleContents(block).safe()
+                        && barrel.visibleContents(block).amount() == 36L,
+                        id + " different lore is never folded into saved storage");
+                check.that(menu.getItemInSlot(19) != null && menu.getItemInSlot(19).getAmount() == 3,
+                        id + " rejected lore item remains physically in Cargo input slot");
+                menu.replaceExistingItem(19, null);
+
+                // Use a plain Bukkit ItemStack, not SlimefunItemStack.clone(): the latter
+                // may reapply the registered subclass ID while the core stages a Cargo item.
+                ItemStack differentIdentity = new ItemStack(reencoded.getType(), 5);
+                differentIdentity.setItemMeta(reencoded.getItemMeta());
+                Slimefun.getItemDataService().setItemData(differentIdentity, id + "_SPOOF");
+                check.that((id + "_SPOOF").equals(
+                        Slimefun.getItemDataService().getItemData(differentIdentity).orElse(null)),
+                        id + " spoof fixture has an actually distinct PDC ID");
+                ItemStack offeredRemainder = insertViaCoreCargo(cargoNet, outputNode, block, differentIdentity);
+                ItemStack staged = menu.getItemInSlot(19);
+                check.that((id + "_SPOOF").equals(
+                        Slimefun.getItemDataService().getItemData(staged).orElse(null)),
+                        id + " physically staged Cargo item retains its distinct PDC identity");
+                check.note(id + " before tick: source-ID="
+                        + Slimefun.getItemDataService().getItemData(differentIdentity).orElse("<missing>")
+                        + " staged-ID=" + Slimefun.getItemDataService().getItemData(staged).orElse("<missing>")
+                        + " staged=" + (staged == null ? 0 : staged.getAmount())
+                        + " offer-remainder=" + (offeredRemainder == null ? 0 : offeredRemainder.getAmount())
+                        + " stored=" + barrel.getStored(block) + " visible=" + barrel.visibleContents(block).amount());
+                barrelItem.getBlockTicker().tick(block, barrelItem, data);
+                ItemStack after = menu.getItemInSlot(19);
+                check.note(id + " after tick: staged-ID="
+                        + Slimefun.getItemDataService().getItemData(after).orElse("<missing>")
+                        + " staged=" + (after == null ? 0 : after.getAmount())
+                        + " stored=" + barrel.getStored(block)
+                        + " visibleSafe=" + barrel.visibleContents(block).safe()
+                        + " visible=" + barrel.visibleContents(block).amount());
+                check.that(barrel.visibleContents(block).safe()
+                        && barrel.visibleContents(block).amount() == 36L,
+                        id + " different Slimefun ID is never merged into saved storage");
+                check.that(menu.getItemInSlot(19) != null && menu.getItemInSlot(19).getAmount() == 5,
+                        id + " rejected Slimefun ID remains physically in Cargo input slot");
+            }
+            return check;
+        });
+    }
+
     private CompletableFuture<Check> barrelDisplayLifecycle() {
         return ownerCompose(() -> {
             Check check = new Check();
@@ -181,7 +473,12 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
             check.that(barrel.getStored(block) == 0, "empty barrel reserve starts at zero");
 
             ItemStack diamonds = rich(Material.DIAMOND, 17, "barrel-first-item");
-            menu.replaceExistingItem(19, diamonds.clone());
+            int[] cargoInputs = menu.getPreset().getSlotsAccessedByItemTransport(
+                    menu, ItemTransportFlow.INSERT, diamonds);
+            check.that(Arrays.equals(cargoInputs, new int[] {19, 20}),
+                    "native Cargo insertion exposes only the two input slots");
+            check.that(menu.pushItem(diamonds.clone(), cargoInputs) == null,
+                    "Cargo-facing insertion accepts the initial diamond payload");
             item.getBlockTicker().tick(block, item, data);
             check.that(barrelQuantity(barrel, block, menu) == 17L,
                 "storage still conserves 17 diamonds while visual refresh is delayed");
@@ -201,11 +498,39 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                 check.that(output != null && output.getAmount() == 17
                     && diamonds.isSimilar(output), "physical output preserves rich item metadata");
 
-                // Simulate a complete physical network withdrawal without editing stored reserve.
+                // Cargo input only: both output slots fill even with no output Cargo node.
+                // The last 9 items MUST remain in the saved reserve (137 - 128).
+                ItemStack extra = diamonds.clone();
+                extra.setAmount(120);
+                check.that(menu.pushItem(extra, cargoInputs) == null,
+                        "Cargo-facing input accepts 120 additional items through both input slots");
+                item.getBlockTicker().tick(block, item, data);
+                check.that(barrelQuantity(barrel, block, menu) == 137L,
+                        "input-only Cargo transfer preserves all 137 diamonds");
+                check.that(barrel.getStored(block) == 9,
+                        "full output buffers leave exactly 9 diamonds in the saved reserve");
+                check.that(menu.getItemInSlot(24) != null && menu.getItemInSlot(24).getAmount() == 64
+                        && menu.getItemInSlot(25) != null && menu.getItemInSlot(25).getAmount() == 64,
+                        "both physical output buffers contain their full 64-item stacks");
+                ItemStack status = menu.getItemInSlot(22);
+                check.that(status != null && status.hasItemMeta()
+                        && PlainTextComponentSerializer.plainText()
+                                .serialize(status.getItemMeta().displayName()).contains("137 /"),
+                        "GUI status shows saved reserve PLUS both buffered output stacks");
+
+                // Removing physical output stacks must not delete the saved remainder.
                 for (int slot : new int[] {24, 25}) menu.replaceExistingItem(slot, null);
                 menu.markDirty();
                 item.getBlockTicker().tick(block, item, data);
-                check.that(barrelQuantity(barrel, block, menu) == 0L, "output withdrawal empties the barrel");
+                check.that(barrelQuantity(barrel, block, menu) == 9L,
+                        "draining both physical outputs preserves the 9 saved diamonds");
+                check.that(menu.getItemInSlot(24) != null && menu.getItemInSlot(24).getAmount() == 9,
+                        "remaining 9 diamonds can flow into the first output buffer");
+                for (int slot : new int[] {24, 25}) menu.replaceExistingItem(slot, null);
+                menu.markDirty();
+                item.getBlockTicker().tick(block, item, data);
+                check.that(barrelQuantity(barrel, block, menu) == 0L,
+                        "draining output and remaining reserve empties the barrel without loss");
 
                 return delay(25).thenCompose(done -> ownerCompose(() -> {
                     item.getBlockTicker().tick(block, item, data);
@@ -247,6 +572,25 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                             check.that(barrelQuantity(barrel, block, menu) == 9L,
                                 "icon self-healing does not alter stored item quantities");
 
+                            // A corrupted saved counter must never turn into a
+                            // fresh empty barrel or consume incoming Cargo items.
+                            ItemStack blocked = emeralds.clone();
+                            blocked.setAmount(4);
+                            barrel.setStored(block, -1);
+                            check.that(menu.pushItem(blocked.clone(),
+                                    menu.getPreset().getSlotsAccessedByItemTransport(
+                                            menu, ItemTransportFlow.INSERT, blocked)) == null,
+                                    "Cargo can physically stage an item despite corrupt saved data");
+                            item.getBlockTicker().tick(block, item, data);
+                            check.that(barrel.getStored(block) == -1,
+                                    "invalid saved counter is never reset by the ticker");
+                            check.that(menu.getItemInSlot(19) != null
+                                    && menu.getItemInSlot(19).getAmount() == 4,
+                                    "ticker does not consume Cargo input when saved counter is corrupt");
+                            check.that(!barrel.visibleContents(block).safe(),
+                                    "corrupt saved counter is visibly classified unsafe");
+                            menu.replaceExistingItem(19, null);
+                            barrel.setStored(block, 0);
                             BarrelDisplayManager.remove(block);
                             check.that(barrelDisplays(location).isEmpty(),
                                 "explicit display removal leaves no orphaned icon");
@@ -713,7 +1057,62 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                                 }));
                     }));
         }
-        return chain;
+        // A separate process must reload both output buffers and the durable reserve.
+        return chain.thenCompose(v -> {
+            final Map<String, Object> fixture;
+            try {
+                Type mapType = new TypeToken<Map<String, Object>>() {}.getType();
+                fixture = JSON.fromJson(Files.readString(
+                        getDataFolder().toPath().resolve("barrel-restart-fixture.json")), mapType);
+            } catch (IOException failure) {
+                return CompletableFuture.failedFuture(failure);
+            }
+            if (fixture == null) return CompletableFuture.failedFuture(
+                    new IllegalStateException("Missing barrel restart fixture"));
+            return ownerCompose(() -> {
+                Location location = new Location(world, ((Number) fixture.get("x")).intValue(),
+                        ((Number) fixture.get("y")).intValue(), ((Number) fixture.get("z")).intValue());
+                holdChunk(location);
+                SlimefunBlockData data = blocks.getBlockData(location);
+                if (data == null) throw new IllegalStateException("Barrel block data missing after Paper restart");
+                if (!data.isDataLoaded()) blocks.loadBlockData(data);
+                return waitUntil(() -> data.isDataLoaded() && data.getBlockMenu() != null, 100)
+                        .thenCompose(v2 -> owner(() -> {
+                            BlockMenu menu = data.getBlockMenu();
+                            SlimefunItem sf = SlimefunItem.getById((String) fixture.get("id"));
+                            if (!(sf instanceof Barrel barrel) || menu == null)
+                                throw new IllegalStateException("Missing barrel menu after restart");
+                            Block block = location.getBlock();
+                            Check check = new Check();
+                            check.that(fixture.get("id").equals(data.getSfId()),
+                                    "barrel registration survives a separate Paper process");
+                            check.that(barrel.getStored(block) == ((Number) fixture.get("stored")).intValue(),
+                                    "saved Slimefun barrel reserve survives restart unchanged");
+                            check.that(barrel.visibleContents(block).safe()
+                                    && barrel.visibleContents(block).amount() == ((Number) fixture.get("total")).longValue(),
+                                    "both buffered outputs and reserve total survive restart");
+                            ItemStack outputA = menu.getItemInSlot(24), outputB = menu.getItemInSlot(25);
+                            check.that(outputA != null && outputA.getAmount() == 64
+                                    && outputB != null && outputB.getAmount() == 64,
+                                    "two physical output buffers survive Paper restart");
+                            // Missing slots must produce an assertion failure, not an NPE
+                            // that hides the preceding restart/conservation evidence.
+                            String outputAId = outputA == null ? null : Slimefun.getItemDataService()
+                                    .getItemData(outputA).orElse(null);
+                            String outputBId = outputB == null ? null : Slimefun.getItemDataService()
+                                    .getItemData(outputB).orElse(null);
+                            check.that(fixture.get("item").equals(outputAId)
+                                    && fixture.get("item").equals(outputBId),
+                                    "Slimefun item identities persist in both output slots");
+                            sf.getBlockTicker().tick(block, sf, data);
+                            check.that(barrel.visibleContents(block).safe()
+                                    && barrel.visibleContents(block).amount() == 137L,
+                                    "first post-restart machine tick conserves all items");
+                            results.add(check.result("restart-barrel-cargo-contents"));
+                            return (Void) null;
+                        }));
+            });
+        });
     }
 
     private void remember(Machine m, Bag a, boolean legacy) {
