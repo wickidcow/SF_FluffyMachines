@@ -27,6 +27,7 @@ import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.inventory.meta.ItemMeta;
+import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Entity;
@@ -474,12 +475,17 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
         String secondId = second.getPersistentDataContainer().get(slimefunIdKey, PersistentDataType.STRING);
         if (firstId == null || !firstId.equals(secondId)) return false;
         if (first.displayName() == null || second.displayName() == null) return false;
-        PlainTextComponentSerializer plain = PlainTextComponentSerializer.plainText();
-        if (!plain.serialize(first.displayName()).equals(plain.serialize(second.displayName()))) return false;
+        if (!samePlainDisplayName(first.displayName(), second.displayName())) return false;
         first.displayName(null);
         second.displayName(null);
         return first.equals(second);
     }
+    static boolean samePlainDisplayName(Component first, Component second) {
+        if (first == null || second == null) return false;
+        PlainTextComponentSerializer plain = PlainTextComponentSerializer.plainText();
+        return plain.serialize(first).equals(plain.serialize(second));
+    }
+
     /**
      * This method updates the barrel's menu and hologram displays
      *
