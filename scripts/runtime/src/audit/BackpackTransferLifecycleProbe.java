@@ -40,6 +40,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.Chunk;
@@ -369,15 +370,20 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                 original.setAmount(15);
                 var meta = original.getItemMeta();
                 meta.displayName(Component.text("Cargo regression " + id));
+                meta.lore(List.of(Component.text("Original: " + id),
+                        Component.text("Stored component version", NamedTextColor.GRAY)));
                 original.setItemMeta(meta);
                 Slimefun.getItemDataService().setItemData(original, id);
                 ItemStack reencoded = original.clone();
                 reencoded.setAmount(21);
                 var reencodedMeta = reencoded.getItemMeta();
                 reencodedMeta.displayName(Component.text("").append(Component.text("Cargo regression " + id)));
+                reencodedMeta.lore(List.of(
+                        Component.text("").append(Component.text("Original: " + id)),
+                        Component.text("").append(Component.text("Stored component version", NamedTextColor.GRAY))));
                 reencoded.setItemMeta(reencodedMeta);
                 check.that(!original.getItemMeta().equals(reencoded.getItemMeta()),
-                        id + " genuinely has differently structured Adventure names");
+                        id + " genuinely has differently structured Adventure names and lore");
 
                 int[] slots = menu.getPreset().getSlotsAccessedByItemTransport(
                         menu, ItemTransportFlow.INSERT, original);
@@ -391,7 +397,9 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                 barrelItem.getBlockTicker().tick(block, barrelItem, data);
                 check.that(barrel.visibleContents(block).safe()
                         && barrel.visibleContents(block).amount() == 36L,
-                        id + " compatible formatting merges into existing barrel with no loss");
+                        id + " equivalent legacy lore formatting merges without losing stock");
+                check.that(barrel.getStored(block) >= 0,
+                        id + " persisted reserve remains nonnegative after formatting merge");
 
                 ItemStack differentLore = reencoded.clone();
                 differentLore.setAmount(3);
