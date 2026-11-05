@@ -42,7 +42,7 @@ ORDINARY_CONTROLS = {
 }
 EXPECTED_CASES = NEGATIVE_CONTROLS | ORDINARY_CONTROLS | {
     "loader-cache-eviction", "unloader-cache-eviction", "loader-menu-replacement", "unloader-menu-replacement",
-    "barrel-display-and-quantities"}
+    "barrel-display-and-quantities", "barrel-slimefun-cargo-metadata"}
 EXPECTED_RESTART_CASES = {f"restart-{identity}-BACKPACK_{machine}"
                           for identity in ("pdc", "legacy") for machine in ("LOADER", "UNLOADER")}
 
