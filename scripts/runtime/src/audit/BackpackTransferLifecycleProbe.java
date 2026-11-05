@@ -953,10 +953,14 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                             check.that(outputA != null && outputA.getAmount() == 64
                                     && outputB != null && outputB.getAmount() == 64,
                                     "two physical output buffers survive Paper restart");
-                            check.that(fixture.get("item").equals(Slimefun.getItemDataService()
-                                            .getItemData(outputA).orElse(null))
-                                    && fixture.get("item").equals(Slimefun.getItemDataService()
-                                            .getItemData(outputB).orElse(null)),
+                            // Missing slots must produce an assertion failure, not an NPE
+                            // that hides the preceding restart/conservation evidence.
+                            String outputAId = outputA == null ? null : Slimefun.getItemDataService()
+                                    .getItemData(outputA).orElse(null);
+                            String outputBId = outputB == null ? null : Slimefun.getItemDataService()
+                                    .getItemData(outputB).orElse(null);
+                            check.that(fixture.get("item").equals(outputAId)
+                                    && fixture.get("item").equals(outputBId),
                                     "Slimefun item identities persist in both output slots");
                             sf.getBlockTicker().tick(block, sf, data);
                             check.that(barrel.visibleContents(block).safe()
