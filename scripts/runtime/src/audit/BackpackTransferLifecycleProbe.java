@@ -367,6 +367,25 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                             check.that(barrelQuantity(barrel, block, menu) == 9L,
                                 "icon self-healing does not alter stored item quantities");
 
+                            // A corrupted saved counter must never turn into a
+                            // fresh empty barrel or consume incoming Cargo items.
+                            ItemStack blocked = emeralds.clone();
+                            blocked.setAmount(4);
+                            barrel.setStored(block, -1);
+                            check.that(menu.pushItem(blocked.clone(),
+                                    menu.getPreset().getSlotsAccessedByItemTransport(
+                                            menu, ItemTransportFlow.INSERT, blocked)) == null,
+                                    "Cargo can physically stage an item despite corrupt saved data");
+                            item.getBlockTicker().tick(block, item, data);
+                            check.that(barrel.getStored(block) == -1,
+                                    "invalid saved counter is never reset by the ticker");
+                            check.that(menu.getItemInSlot(19) != null
+                                    && menu.getItemInSlot(19).getAmount() == 4,
+                                    "ticker does not consume Cargo input when saved counter is corrupt");
+                            check.that(!barrel.visibleContents(block).safe(),
+                                    "corrupt saved counter is visibly classified unsafe");
+                            menu.replaceExistingItem(19, null);
+                            barrel.setStored(block, 0);
                             BarrelDisplayManager.remove(block);
                             check.that(barrelDisplays(location).isEmpty(),
                                 "explicit display removal leaves no orphaned icon");
