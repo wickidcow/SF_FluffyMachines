@@ -130,6 +130,40 @@ jobs:
                   '--expect', 'fixed',
               ], check=True)
           PY
+      - name: Verify current Slimefun Legacy 4.1.79 native Cargo and restart (Paper 26.3)
+        shell: bash
+        run: |
+          set -euo pipefail
+          CORE=".native-inputs/Slimefun-Legacy4.1.79.jar"
+          curl --fail --show-error --silent --location --retry 2 \\
+            --proto '=https' --proto-redir '=https' --tlsv1.2 \\
+            --connect-timeout 20 --max-time 240 \\
+            -o "$CORE" "https://github.com/wickidcow/Slimefun-Legacy/releases/download/v4.1.79/Slimefun-Legacy4.1.79.jar"
+          test "$(stat -c '%s' "$CORE")" -eq 8696827
+          printf '44cbf997f34efb79a2365f5cf18b6902d694ea010a307e5a4a32d23286e8d74e  %s\\n' "$CORE" | sha256sum --check --status
+          python3 - <<'PY'
+          from zipfile import ZipFile
+          with ZipFile('.native-inputs/Slimefun-Legacy4.1.79.jar') as jar:
+              if jar.testzip() is not None:
+                  raise SystemExit('Current Slimefun jar failed CRC verification')
+              descriptor = jar.read('plugin.yml').decode()
+              if not any(line.strip().strip("'\\\"") == 'version: 4.1.79' for line in descriptor.splitlines()):
+                  raise SystemExit('Current Slimefun jar descriptor is not v4.1.79')
+          PY
+          python3 - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          manifest = json.loads(Path('.native-inputs/inputs.json').read_text())
+          subprocess.run([
+              'python3', 'scripts/runtime/run_backpack_transfer_probe.py',
+              '--paper', manifest['paper']['26.3']['path'],
+              '--core', str(Path('.native-inputs/Slimefun-Legacy4.1.79.jar').resolve()),
+              '--addon', str(Path('target') / os.environ['OUTPUT_NAME']),
+              '--work-dir', '.native-current/26.3',
+              '--java', str(Path(os.environ['JAVA_HOME']) / 'bin/java'),
+              '--expect', 'fixed',
+          ], check=True)
+          PY
       - name: Upload native backpack regression evidence
         if: always()
         uses: actions/upload-artifact@v7
@@ -138,6 +172,7 @@ jobs:
           path: |
             .native-inputs/inputs.json
             .native-backpacks/*/evidence/*
+            .native-current/*/evidence/*
           include-hidden-files: true
           if-no-files-found: warn
       - name: Stage and verify versioned JAR
