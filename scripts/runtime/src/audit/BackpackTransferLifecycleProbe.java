@@ -227,8 +227,25 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                 ItemStack differentIdentity = reencoded.clone();
                 differentIdentity.setAmount(5);
                 Slimefun.getItemDataService().setItemData(differentIdentity, id + "_SPOOF");
-                menu.pushItem(differentIdentity, slots);
+                check.that((id + "_SPOOF").equals(
+                        Slimefun.getItemDataService().getItemData(differentIdentity).orElse(null)),
+                        id + " spoof fixture has an actually distinct PDC ID");
+                ItemStack offeredRemainder = menu.pushItem(differentIdentity, slots);
+                ItemStack staged = menu.getItemInSlot(19);
+                check.note(id + " before tick: source-ID="
+                        + Slimefun.getItemDataService().getItemData(differentIdentity).orElse("<missing>")
+                        + " staged-ID=" + Slimefun.getItemDataService().getItemData(staged).orElse("<missing>")
+                        + " staged=" + (staged == null ? 0 : staged.getAmount())
+                        + " offer-remainder=" + (offeredRemainder == null ? 0 : offeredRemainder.getAmount())
+                        + " stored=" + barrel.getStored(block) + " visible=" + barrel.visibleContents(block).amount());
                 barrelItem.getBlockTicker().tick(block, barrelItem, data);
+                ItemStack after = menu.getItemInSlot(19);
+                check.note(id + " after tick: staged-ID="
+                        + Slimefun.getItemDataService().getItemData(after).orElse("<missing>")
+                        + " staged=" + (after == null ? 0 : after.getAmount())
+                        + " stored=" + barrel.getStored(block)
+                        + " visibleSafe=" + barrel.visibleContents(block).safe()
+                        + " visible=" + barrel.visibleContents(block).amount());
                 check.that(barrel.visibleContents(block).safe()
                         && barrel.visibleContents(block).amount() == 36L,
                         id + " different Slimefun ID is never merged into saved storage");
