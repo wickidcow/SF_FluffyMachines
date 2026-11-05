@@ -265,14 +265,19 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                         id + " rejected lore item remains physically in Cargo input slot");
                 menu.replaceExistingItem(19, null);
 
-                ItemStack differentIdentity = reencoded.clone();
-                differentIdentity.setAmount(5);
+                // Use a plain Bukkit ItemStack, not SlimefunItemStack.clone(): the latter
+                // may reapply the registered subclass ID while the core stages a Cargo item.
+                ItemStack differentIdentity = new ItemStack(reencoded.getType(), 5);
+                differentIdentity.setItemMeta(reencoded.getItemMeta());
                 Slimefun.getItemDataService().setItemData(differentIdentity, id + "_SPOOF");
                 check.that((id + "_SPOOF").equals(
                         Slimefun.getItemDataService().getItemData(differentIdentity).orElse(null)),
                         id + " spoof fixture has an actually distinct PDC ID");
                 ItemStack offeredRemainder = menu.pushItem(differentIdentity, slots);
                 ItemStack staged = menu.getItemInSlot(19);
+                check.that((id + "_SPOOF").equals(
+                        Slimefun.getItemDataService().getItemData(staged).orElse(null)),
+                        id + " physically staged Cargo item retains its distinct PDC identity");
                 check.note(id + " before tick: source-ID="
                         + Slimefun.getItemDataService().getItemData(differentIdentity).orElse("<missing>")
                         + " staged-ID=" + Slimefun.getItemDataService().getItemData(staged).orElse("<missing>")
