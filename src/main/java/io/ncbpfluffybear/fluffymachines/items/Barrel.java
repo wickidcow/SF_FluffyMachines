@@ -285,6 +285,11 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
             extract(pl, menu, b, action);
             return false;
         });
+
+        // BlockMenu inventories persist their decorative items across server restarts.
+        // Rebuild the status from the authoritative saved count, not from a stale
+        // pane left by an older plugin version or a previous interaction.
+        refreshStatus(menu, getStored(b), capacity);
     }
     @Override
     public void preRegister() {
@@ -491,11 +496,9 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
         String storedPercent = doubleRoundAndFade((double) stored / (double) capacity * 100);
         String storedStacks =
             doubleRoundAndFade((double) stored / (double) inv.getItemInSlot(DISPLAY_SLOT).getMaxStackSize());
-        // This helps a bit with lag, but may have visual impacts
+        // Avoid rewriting the menu every machine tick when no one is viewing it.
         if (inv.hasViewer() || force) {
-            inv.replaceExistingItem(STATUS_SLOT, new CustomItemStack(
-                Material.LIME_STAINED_GLASS_PANE, "&6Stored items: &e" + stored + " / " + capacity,
-                "&b" + storedStacks + " stacks &8| &7" + storedPercent + "&7%"));
+            refreshStatus(inv, stored, capacity);
         }
         if (inv.getItemInSlot(DISPLAY_SLOT) != null) {
             itemName = Utils.getViewableName(inv.getItemInSlot(DISPLAY_SLOT));
@@ -512,6 +515,16 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
             }
         }
     }
+    private void refreshStatus(BlockMenu menu, int stored, int capacity) {
+        ItemStack display = menu.getItemInSlot(DISPLAY_SLOT);
+        int stackSize = display == null ? 64 : Math.max(1, display.getMaxStackSize());
+        String percent = capacity > 0 ? doubleRoundAndFade((double) stored / capacity * 100) : "0";
+        String stacks = doubleRoundAndFade((double) stored / stackSize);
+        menu.replaceExistingItem(STATUS_SLOT, new CustomItemStack(
+                Material.LIME_STAINED_GLASS_PANE, "&6Stored items: &e" + stored + " / " + capacity,
+                "&b" + stacks + " stacks &8| &7" + percent + "&7%"));
+    }
+
     /**
      * This method toggles if a hologram is present above the barrel.
      *
