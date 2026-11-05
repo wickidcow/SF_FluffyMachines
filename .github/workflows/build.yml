@@ -135,19 +135,19 @@ jobs:
         run: |
           set -euo pipefail
           CORE=".native-inputs/Slimefun-Legacy4.1.79.jar"
-          curl --fail --show-error --silent --location --retry 2 \\
-            --proto '=https' --proto-redir '=https' --tlsv1.2 \\
-            --connect-timeout 20 --max-time 240 \\
+          curl --fail --show-error --silent --location --retry 2 \
+            --proto '=https' --proto-redir '=https' --tlsv1.2 \
+            --connect-timeout 20 --max-time 240 \
             -o "$CORE" "https://github.com/wickidcow/Slimefun-Legacy/releases/download/v4.1.79/Slimefun-Legacy4.1.79.jar"
           test "$(stat -c '%s' "$CORE")" -eq 8696827
-          printf '44cbf997f34efb79a2365f5cf18b6902d694ea010a307e5a4a32d23286e8d74e  %s\\n' "$CORE" | sha256sum --check --status
+          printf '44cbf997f34efb79a2365f5cf18b6902d694ea010a307e5a4a32d23286e8d74e  %s\n' "$CORE" | sha256sum --check --status
           python3 - <<'PY'
           from zipfile import ZipFile
           with ZipFile('.native-inputs/Slimefun-Legacy4.1.79.jar') as jar:
               if jar.testzip() is not None:
                   raise SystemExit('Current Slimefun jar failed CRC verification')
               descriptor = jar.read('plugin.yml').decode()
-              if not any(line.strip().strip("'\\\"") == 'version: 4.1.79' for line in descriptor.splitlines()):
+              if 'version: 4.1.79' not in descriptor:
                   raise SystemExit('Current Slimefun jar descriptor is not v4.1.79')
           PY
           python3 - <<'PY'
