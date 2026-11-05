@@ -502,10 +502,10 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
         String storedPercent = doubleRoundAndFade((double) stored / (double) capacity * 100);
         String storedStacks =
             doubleRoundAndFade((double) stored / (double) inv.getItemInSlot(DISPLAY_SLOT).getMaxStackSize());
-        // Avoid rewriting the menu every machine tick when no one is viewing it.
-        if (inv.hasViewer() || force) {
-            refreshStatus(inv, stored, capacity);
-        }
+        // A persisted status pane can become stale after cargo ticks or server restarts.
+        // Keep the authoritative counter visible even when the menu has no viewer.
+        // Only replace the pane when its complete item representation differs.
+        refreshStatus(inv, stored, capacity);
         if (inv.getItemInSlot(DISPLAY_SLOT) != null) {
             itemName = Utils.getViewableName(inv.getItemInSlot(DISPLAY_SLOT));
         }
@@ -526,9 +526,12 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
         int stackSize = display == null ? 64 : Math.max(1, display.getMaxStackSize());
         String percent = capacity > 0 ? doubleRoundAndFade((double) stored / capacity * 100) : "0";
         String stacks = doubleRoundAndFade((double) stored / stackSize);
-        menu.replaceExistingItem(STATUS_SLOT, new CustomItemStack(
+        ItemStack expected = new CustomItemStack(
                 Material.LIME_STAINED_GLASS_PANE, "&6Stored items: &e" + stored + " / " + capacity,
-                "&b" + stacks + " stacks &8| &7" + percent + "&7%"));
+                "&b" + stacks + " stacks &8| &7" + percent + "&7%");
+        if (!expected.equals(menu.getItemInSlot(STATUS_SLOT))) {
+            menu.replaceExistingItem(STATUS_SLOT, expected);
+        }
     }
 
     /**
