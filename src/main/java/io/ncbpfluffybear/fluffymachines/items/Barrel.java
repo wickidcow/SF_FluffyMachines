@@ -481,6 +481,12 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
         }
         ItemMeta first = item1.getItemMeta();
         ItemMeta second = item2.getItemMeta();
+        // Check Slimefun identity before even considering ItemMeta equality. This also
+        // prevents unusual or custom ItemMeta equality implementations from treating
+        // physically identical-looking items with different registered IDs as equal.
+        String firstId = Slimefun.getItemDataService().getItemData(first).orElse(null);
+        String secondId = Slimefun.getItemDataService().getItemData(second).orElse(null);
+        if (!java.util.Objects.equals(firstId, secondId)) return false;
         if (first.equals(second)) return true;
 
         // Legacy and modern serializers can encode the *same* Slimefun display name
@@ -489,9 +495,7 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
         // and their visible, unformatted names are identical. All other metadata,
         // including custom model data, lore and addon PDC, must still match.
         // Follow the active Slimefun core's item-ID key instead of assuming a namespace.
-        String firstId = Slimefun.getItemDataService().getItemData(first).orElse(null);
-        String secondId = Slimefun.getItemDataService().getItemData(second).orElse(null);
-        if (firstId == null || !firstId.equals(secondId)) return false;
+        if (firstId == null) return false;
         if (first.displayName() == null || second.displayName() == null) return false;
         if (!samePlainDisplayName(first.displayName(), second.displayName())) return false;
         first.displayName(null);
