@@ -112,6 +112,7 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
     private CompletableFuture<Void> runChecks() {
         List<Scenario> scenarios = List.of(
                 new Scenario("barrel-display-and-quantities", this::barrelDisplayLifecycle),
+                new Scenario("barrel-slimefun-cargo-metadata", this::barrelSlimefunCargoMetadata),
                 new Scenario("normal-loader", () -> normal(true)),
                 new Scenario("normal-unloader", () -> normal(false)),
                 new Scenario("legacy-lore-loader", () -> normal(true, true)),
@@ -154,6 +155,90 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
      * Exercises the real registered Fluffy Barrel ticker and Bukkit ItemDisplay entities.
      * Inputs and output slots remain physical inventories; only the presentation cache is delayed.
      */
+    /**
+     * Native Cargo-facing insertion of two different registered Slimefun items.
+     * Cosmetic Adventure component layouts may vary; lore and Slimefun identity may not.
+     */
+    private CompletableFuture<Check> barrelSlimefunCargoMetadata() {
+        return owner(() -> {
+            Check check = new Check();
+            SlimefunItem barrelItem = SlimefunItem.getById("SMALL_FLUFFY_BARREL");
+            if (!(barrelItem instanceof Barrel barrel)) {
+                throw new IllegalStateException("Registered Fluffy Barrel missing");
+            }
+            for (String id : List.of("REINFORCED_PLATE", "STEEL_INGOT")) {
+                SlimefunItem payloadItem = SlimefunItem.getById(id);
+                if (payloadItem == null) throw new IllegalStateException("Native Slimefun item missing: " + id);
+                fixtureNumber++;
+                Location location = new Location(world, 1536 + fixtureNumber * 128, 64, 1536);
+                Chunk chunk = holdChunk(location);
+                blocks.getChunkData(chunk);
+                Block block = location.getBlock();
+                block.setType(barrelItem.getItem().getType(), false);
+                SlimefunBlockData data = blocks.createBlock(location, barrelItem.getId());
+                BlockMenu menu = data.getBlockMenu();
+                if (menu == null || !data.isDataLoaded()) {
+                    throw new IllegalStateException("Native Cargo barrel menu is unavailable: " + id);
+                }
+                barrel.setStored(block, 0);
+
+                ItemStack original = payloadItem.getItem().clone();
+                original.setAmount(15);
+                var meta = original.getItemMeta();
+                meta.displayName(Component.text("Cargo regression " + id));
+                original.setItemMeta(meta);
+                Slimefun.getItemDataService().setItemData(original, id);
+                ItemStack reencoded = original.clone();
+                reencoded.setAmount(21);
+                var reencodedMeta = reencoded.getItemMeta();
+                reencodedMeta.displayName(Component.text("").append(Component.text("Cargo regression " + id)));
+                reencoded.setItemMeta(reencodedMeta);
+                check.that(!original.getItemMeta().equals(reencoded.getItemMeta()),
+                        id + " genuinely has differently structured Adventure names");
+
+                int[] slots = menu.getPreset().getSlotsAccessedByItemTransport(
+                        menu, ItemTransportFlow.INSERT, original);
+                check.that(Arrays.equals(slots, new int[] {19, 20}), id + " cargo slots are input-only");
+                check.that(menu.pushItem(original.clone(), slots) == null, id + " initial item admitted by Cargo API");
+                barrelItem.getBlockTicker().tick(block, barrelItem, data);
+                check.that(barrel.visibleContents(block).safe()
+                        && barrel.visibleContents(block).amount() == 15L, id + " first cargo delivery counted");
+                check.that(menu.pushItem(reencoded.clone(), slots) == null,
+                        id + " cosmetically reencoded item admitted by Cargo API");
+                barrelItem.getBlockTicker().tick(block, barrelItem, data);
+                check.that(barrel.visibleContents(block).safe()
+                        && barrel.visibleContents(block).amount() == 36L,
+                        id + " compatible formatting merges into existing barrel with no loss");
+
+                ItemStack differentLore = reencoded.clone();
+                differentLore.setAmount(3);
+                var differentLoreMeta = differentLore.getItemMeta();
+                differentLoreMeta.lore(List.of(Component.text("A meaningful metadata difference")));
+                differentLore.setItemMeta(differentLoreMeta);
+                menu.pushItem(differentLore, slots);
+                barrelItem.getBlockTicker().tick(block, barrelItem, data);
+                check.that(barrel.visibleContents(block).safe()
+                        && barrel.visibleContents(block).amount() == 36L,
+                        id + " different lore is never folded into saved storage");
+                check.that(menu.getItemInSlot(19) != null && menu.getItemInSlot(19).getAmount() == 3,
+                        id + " rejected lore item remains physically in Cargo input slot");
+                menu.replaceExistingItem(19, null);
+
+                ItemStack differentIdentity = reencoded.clone();
+                differentIdentity.setAmount(5);
+                Slimefun.getItemDataService().setItemData(differentIdentity, id + "_SPOOF");
+                menu.pushItem(differentIdentity, slots);
+                barrelItem.getBlockTicker().tick(block, barrelItem, data);
+                check.that(barrel.visibleContents(block).safe()
+                        && barrel.visibleContents(block).amount() == 36L,
+                        id + " different Slimefun ID is never merged into saved storage");
+                check.that(menu.getItemInSlot(19) != null && menu.getItemInSlot(19).getAmount() == 5,
+                        id + " rejected Slimefun ID remains physically in Cargo input slot");
+            }
+            return check;
+        });
+    }
+
     private CompletableFuture<Check> barrelDisplayLifecycle() {
         return ownerCompose(() -> {
             Check check = new Check();
