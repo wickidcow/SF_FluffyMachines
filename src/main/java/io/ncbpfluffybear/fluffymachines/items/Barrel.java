@@ -24,6 +24,10 @@ import me.mrCookieSlime.Slimefun.api.inventory.BlockMenuPreset;
 import me.mrCookieSlime.Slimefun.api.inventory.DirtyChestMenu;
 import me.mrCookieSlime.Slimefun.api.item_transport.ItemTransportFlow;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
+import org.bukkit.persistence.PersistentDataType;
+import org.bukkit.inventory.meta.ItemMeta;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Item;
@@ -451,7 +455,25 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
         if (item1.hasItemMeta() != item2.hasItemMeta()) {
             return false;
         }
-        return item1.getItemMeta().equals(item2.getItemMeta());
+        ItemMeta first = item1.getItemMeta();
+        ItemMeta second = item2.getItemMeta();
+        if (first.equals(second)) return true;
+
+        // Legacy and modern serializers can encode the *same* Slimefun display name
+        // differently (extra components versus a single text component). Only ignore
+        // that cosmetic representation when BOTH items carry the exact same Slimefun ID
+        // and their visible, unformatted names are identical. All other metadata,
+        // including custom model data, lore and addon PDC, must still match.
+        NamespacedKey slimefunIdKey = new NamespacedKey("slimefun", "slimefun_item");
+        String firstId = first.getPersistentDataContainer().get(slimefunIdKey, PersistentDataType.STRING);
+        String secondId = second.getPersistentDataContainer().get(slimefunIdKey, PersistentDataType.STRING);
+        if (firstId == null || !firstId.equals(secondId)) return false;
+        if (first.displayName() == null || second.displayName() == null) return false;
+        PlainTextComponentSerializer plain = PlainTextComponentSerializer.plainText();
+        if (!plain.serialize(first.displayName()).equals(plain.serialize(second.displayName()))) return false;
+        first.displayName(null);
+        second.displayName(null);
+        return first.equals(second);
     }
     /**
      * This method updates the barrel's menu and hologram displays
