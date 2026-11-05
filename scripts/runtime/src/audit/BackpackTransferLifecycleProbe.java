@@ -54,6 +54,8 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
 import me.mrCookieSlime.Slimefun.api.inventory.BlockMenu;
+import me.mrCookieSlime.Slimefun.api.item_transport.ItemTransportFlow;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 
 /** Exercises the supplied production addon; it contains no replacement transfer implementation. */
 public final class BackpackTransferLifecycleProbe extends JavaPlugin {
@@ -181,7 +183,12 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
             check.that(barrel.getStored(block) == 0, "empty barrel reserve starts at zero");
 
             ItemStack diamonds = rich(Material.DIAMOND, 17, "barrel-first-item");
-            menu.replaceExistingItem(19, diamonds.clone());
+            int[] cargoInputs = menu.getPreset().getSlotsAccessedByItemTransport(
+                    menu, ItemTransportFlow.INSERT, diamonds);
+            check.that(Arrays.equals(cargoInputs, new int[] {19, 20}),
+                    "native Cargo insertion exposes only the two input slots");
+            check.that(menu.pushItem(diamonds.clone(), cargoInputs) == null,
+                    "Cargo-facing insertion accepts the initial diamond payload");
             item.getBlockTicker().tick(block, item, data);
             check.that(barrelQuantity(barrel, block, menu) == 17L,
                 "storage still conserves 17 diamonds while visual refresh is delayed");
@@ -201,11 +208,39 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                 check.that(output != null && output.getAmount() == 17
                     && diamonds.isSimilar(output), "physical output preserves rich item metadata");
 
-                // Simulate a complete physical network withdrawal without editing stored reserve.
+                // Cargo input only: both output slots fill even with no output Cargo node.
+                // The last 9 items MUST remain in the saved reserve (137 - 128).
+                ItemStack extra = diamonds.clone();
+                extra.setAmount(120);
+                check.that(menu.pushItem(extra, cargoInputs) == null,
+                        "Cargo-facing input accepts 120 additional items through both input slots");
+                item.getBlockTicker().tick(block, item, data);
+                check.that(barrelQuantity(barrel, block, menu) == 137L,
+                        "input-only Cargo transfer preserves all 137 diamonds");
+                check.that(barrel.getStored(block) == 9,
+                        "full output buffers leave exactly 9 diamonds in the saved reserve");
+                check.that(menu.getItemInSlot(24) != null && menu.getItemInSlot(24).getAmount() == 64
+                        && menu.getItemInSlot(25) != null && menu.getItemInSlot(25).getAmount() == 64,
+                        "both physical output buffers contain their full 64-item stacks");
+                ItemStack status = menu.getItemInSlot(22);
+                check.that(status != null && status.hasItemMeta()
+                        && PlainTextComponentSerializer.plainText()
+                                .serialize(status.getItemMeta().displayName()).contains("137 /"),
+                        "GUI status shows saved reserve PLUS both buffered output stacks");
+
+                // Removing physical output stacks must not delete the saved remainder.
                 for (int slot : new int[] {24, 25}) menu.replaceExistingItem(slot, null);
                 menu.markDirty();
                 item.getBlockTicker().tick(block, item, data);
-                check.that(barrelQuantity(barrel, block, menu) == 0L, "output withdrawal empties the barrel");
+                check.that(barrelQuantity(barrel, block, menu) == 9L,
+                        "draining both physical outputs preserves the 9 saved diamonds");
+                check.that(menu.getItemInSlot(24) != null && menu.getItemInSlot(24).getAmount() == 9,
+                        "remaining 9 diamonds can flow into the first output buffer");
+                for (int slot : new int[] {24, 25}) menu.replaceExistingItem(slot, null);
+                menu.markDirty();
+                item.getBlockTicker().tick(block, item, data);
+                check.that(barrelQuantity(barrel, block, menu) == 0L,
+                        "draining output and remaining reserve empties the barrel without loss");
 
                 return delay(25).thenCompose(done -> ownerCompose(() -> {
                     item.getBlockTicker().tick(block, item, data);
