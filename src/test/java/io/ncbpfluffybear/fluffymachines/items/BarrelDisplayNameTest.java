@@ -55,7 +55,8 @@ class BarrelDisplayNameTest {
                         .decoration(TextDecoration.ITALIC, false)));
         List<Component> modern = List.of(
                 Component.text("Stored: 15 / 100", NamedTextColor.GRAY),
-                Component.text("Item details", NamedTextColor.AQUA));
+                Component.text("Item details", NamedTextColor.AQUA)
+                        .decoration(TextDecoration.ITALIC, false));
         assertNotEquals(legacy, modern);
         assertTrue(Barrel.samePlainLore(legacy, modern));
     }
@@ -68,6 +69,63 @@ class BarrelDisplayNameTest {
         assertFalse(Barrel.samePlainLore(original, List.of(Component.text("Stored: 15 / 100"))));
         assertFalse(Barrel.samePlainLore(original, null));
         assertTrue(Barrel.samePlainLore(null, null));
+    }
+
+    @Test
+    void identicalVisibleNameCannotHideMeaningfulAdventureDifferences() {
+        Component original = Component.text("Aluminum Singularity", NamedTextColor.GRAY)
+                .decoration(TextDecoration.ITALIC, false);
+        assertFalse(Barrel.samePlainDisplayName(original,
+                Component.text("Aluminum Singularity", NamedTextColor.RED)
+                        .decoration(TextDecoration.ITALIC, false)),
+                "Do not collapse a meaningful color change");
+        assertFalse(Barrel.samePlainDisplayName(original,
+                original.decorate(TextDecoration.BOLD)),
+                "Do not collapse a meaningful bold decoration");
+        assertFalse(Barrel.samePlainDisplayName(original,
+                original.hoverEvent(net.kyori.adventure.text.event.HoverEvent.showText(
+                        Component.text("Owner A")))),
+                "Do not discard hover metadata");
+        assertFalse(Barrel.samePlainDisplayName(original,
+                original.clickEvent(net.kyori.adventure.text.event.ClickEvent.suggestCommand("/different"))),
+                "Do not discard click metadata");
+        assertFalse(Barrel.samePlainDisplayName(original,
+                original.insertion("different insertion")),
+                "Do not discard insertion metadata");
+        assertFalse(Barrel.samePlainDisplayName(original,
+                Component.translatable("different.translation.key").fallback("Aluminum Singularity")
+                        .color(NamedTextColor.GRAY)),
+                "Do not replace a translatable component with matching visible text");
+        assertFalse(Barrel.samePlainDisplayName(original,
+                Component.text("", NamedTextColor.RED).append(original)),
+                "Do not normalize styled wrappers");
+    }
+
+    @Test
+    void minecraftItemItalicFalseIsNotEquivalentToUnset() {
+        Component explicitNotItalic = Component.text("Stored item", NamedTextColor.AQUA)
+                .decoration(TextDecoration.ITALIC, false);
+        Component inheritedItalic = Component.text("Stored item", NamedTextColor.AQUA);
+        assertFalse(Barrel.samePlainDisplayName(explicitNotItalic, inheritedItalic),
+                "Item lore defaults to italic; explicit false changes rendering");
+        assertFalse(Barrel.samePlainLore(List.of(explicitNotItalic), List.of(inheritedItalic)));
+    }
+
+    @Test
+    void loreEventsColorAndLineCountMustRemainExact() {
+        Component standard = Component.text("Stored: 731", NamedTextColor.GREEN)
+                .decoration(TextDecoration.ITALIC, false);
+        Component legacy = Component.text("").append(
+                standard.decoration(TextDecoration.BOLD, false));
+        assertTrue(Barrel.samePlainLore(List.of(legacy), List.of(standard)),
+                "A purely empty wrapper and redundant false bold is cosmetic");
+        assertFalse(Barrel.samePlainLore(List.of(legacy), List.of(
+                Component.text("Stored: 731", NamedTextColor.RED).decoration(TextDecoration.ITALIC, false))));
+        assertFalse(Barrel.samePlainLore(List.of(legacy), List.of(
+                standard.hoverEvent(net.kyori.adventure.text.event.HoverEvent.showText(
+                        Component.text("hidden payload"))))));
+        assertFalse(Barrel.samePlainLore(List.of(legacy), List.of(standard, standard)),
+                "Never ignore an added or removed lore line");
     }
 
     @Test
