@@ -34,8 +34,8 @@ class BarrelNestedAdventureIdentityTest {
                 .decoration(TextDecoration.ITALIC, false);
         Component child = Component.text("").append(value);
         Component styledChild = Component.text("").color(NamedTextColor.RED).append(value);
-        assertFalse(Barrel.samePlainLore(List.of(child), List.of(value)),
-                "Only a single unstyled root wrapper may be removed; do not flatten nested trees");
+        assertTrue(Barrel.samePlainLore(List.of(child), List.of(value)),
+                "Nested unstyled single-child root wrappers are cosmetic");
         assertFalse(Barrel.samePlainLore(List.of(styledChild), List.of(value)));
     }
 
