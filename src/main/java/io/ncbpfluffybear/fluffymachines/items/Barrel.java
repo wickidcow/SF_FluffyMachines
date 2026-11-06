@@ -26,7 +26,9 @@ import me.mrCookieSlime.Slimefun.api.item_transport.ItemTransportFlow;
 import org.bukkit.Material;
 import org.bukkit.inventory.meta.ItemMeta;
 import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
+import net.kyori.adventure.text.TextComponent;
+import net.kyori.adventure.text.format.Style;
+import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.block.Block;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Item;
@@ -517,9 +519,10 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
         if (!java.util.Objects.equals(firstId, secondId)) return false;
         if (first.equals(second)) return item1.isSimilar(item2);
 
-        // Cosmetic formatting is not item identity. Legacy components may differ
-        // in display-name AND lore tree structure, while retaining identical visible
-        // text. Compare only for a confirmed, identical Slimefun PDC item ID;
+        // Only provably harmless legacy Adventure wrappers and redundant FALSE
+        // root decorations are cosmetic. Visible-text equality alone is NOT
+        // identity: colors, hover/click events, insertion and italic lore matter.
+        // Compare only for a confirmed, identical Slimefun PDC item ID;
         // preserve every other metadata field (model, custom data, enchantments,
         // attributes, nested PDC, etc.). Unknown/vanilla items remain strict.
         if (firstId == null) return false;
@@ -548,20 +551,47 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
         secondItem.setItemMeta(second);
         return firstItem.isSimilar(secondItem);
     }
+    /**
+     * Keep the existing package-local name for compatibility with the baseline
+     * tests, but compare semantic Adventure components rather than plain text.
+     * PlainText serialization drops color, events, insertion and decoration.
+     *
+     * A truly empty, unstyled one-child root is a harmless legacy JSON wrapper.
+     * Only explicitly FALSE root decorations whose vanilla defaults are already
+     * false may be removed. In particular, ITALIC false is meaningful for
+     * Minecraft item names/lore and must never be erased.
+     */
     static boolean samePlainDisplayName(Component first, Component second) {
         if (first == null || second == null) return false;
-        PlainTextComponentSerializer plain = PlainTextComponentSerializer.plainText();
-        return plain.serialize(first).equals(plain.serialize(second));
+        return normalizedItemRoot(first).equals(normalizedItemRoot(second));
     }
+
+    private static Component normalizedItemRoot(Component input) {
+        Component root = input;
+        while (root instanceof TextComponent text
+                && text.content().isEmpty()
+                && text.style().equals(Style.empty())
+                && text.children().size() == 1) {
+            root = text.children().get(0);
+        }
+
+        Style rootStyle = root.style();
+        Style.Builder normalized = rootStyle.toBuilder();
+        for (TextDecoration decoration : new TextDecoration[] {
+                TextDecoration.BOLD, TextDecoration.UNDERLINED,
+                TextDecoration.STRIKETHROUGH, TextDecoration.OBFUSCATED }) {
+            if (rootStyle.decoration(decoration) == TextDecoration.State.FALSE) {
+                normalized.decoration(decoration, TextDecoration.State.NOT_SET);
+            }
+        }
+        return root.style(normalized.build());
+    }
+
     static boolean samePlainLore(List<Component> first, List<Component> second) {
         if (first == null || second == null) return first == second;
         if (first.size() != second.size()) return false;
-        PlainTextComponentSerializer plain = PlainTextComponentSerializer.plainText();
         for (int i = 0; i < first.size(); i++) {
-            if (first.get(i) == null || second.get(i) == null
-                    || !plain.serialize(first.get(i)).equals(plain.serialize(second.get(i)))) {
-                return false;
-            }
+            if (!samePlainDisplayName(first.get(i), second.get(i))) return false;
         }
         return true;
     }
