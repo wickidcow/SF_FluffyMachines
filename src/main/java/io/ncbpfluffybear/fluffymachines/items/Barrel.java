@@ -519,9 +519,10 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
         if (!java.util.Objects.equals(firstId, secondId)) return false;
         if (first.equals(second)) return item1.isSimilar(item2);
 
-        // Cosmetic formatting is not item identity. Legacy components may differ
-        // in display-name AND lore tree structure, while retaining identical visible
-        // text. Compare only for a confirmed, identical Slimefun PDC item ID;
+        // Only provably harmless legacy Adventure wrappers and redundant FALSE
+        // root decorations are cosmetic. Visible-text equality alone is NOT
+        // identity: colors, hover/click events, insertion and italic lore matter.
+        // Compare only for a confirmed, identical Slimefun PDC item ID;
         // preserve every other metadata field (model, custom data, enchantments,
         // attributes, nested PDC, etc.). Unknown/vanilla items remain strict.
         if (firstId == null) return false;
