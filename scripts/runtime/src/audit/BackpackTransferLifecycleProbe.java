@@ -230,6 +230,25 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                         "Legacy bridge does not consume a bucket twice");
                 check.that(actual.getType() == Material.BUCKET && actual.getAmount() == 1,
                         "Legacy bridge retains its in-place material and quantity after repeat");
+                // Baseline the REAL deprecated mutation as well as the candidate.
+                // An identity-safe replacement must not claim parity without
+                // comparing the current in-place behavior on native Paper.
+                var actualMeta = actual.getItemMeta();
+                check.that(java.util.Objects.equals(before.getItemMeta().displayName(), actualMeta.displayName())
+                        && java.util.Objects.equals(before.getItemMeta().lore(), actualMeta.lore()),
+                        "Existing Foundry mutation retains exact Adventure name and lore");
+                check.that("owner-A".equals(actualMeta.getPersistentDataContainer()
+                        .get(ownerKey, PersistentDataType.STRING))
+                        && "foundry-lava".equals(actualMeta.getPersistentDataContainer()
+                        .get(markerKey, PersistentDataType.STRING))
+                        && Long.valueOf(9_007_199_254_741_111L).equals(actualMeta
+                        .getPersistentDataContainer().get(wideKey, PersistentDataType.LONG)),
+                        "Existing Foundry mutation retains typed owner, string and long PDC");
+                check.that("REINFORCED_PLATE".equals(Slimefun.getItemDataService()
+                        .getItemData(actualMeta).orElse(null)),
+                        "Existing Foundry mutation retains the exact Slimefun PDC ID");
+                check.item(actual, nativeCopy(actual),
+                        "Existing Foundry bucket metadata survives native serialization");
             } catch (ReflectiveOperationException ex) {
                 throw new IllegalStateException("Production Foundry bucket helper unavailable", ex);
             }
