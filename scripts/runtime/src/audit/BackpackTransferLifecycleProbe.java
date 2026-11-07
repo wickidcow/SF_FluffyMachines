@@ -42,6 +42,7 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.Chunk;
@@ -118,6 +119,7 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
 
     private CompletableFuture<Void> runChecks() {
         List<Scenario> scenarios = List.of(
+                new Scenario("foundry-native-bucket-metadata", this::foundryNativeBucketMetadata),
                 new Scenario("barrel-display-and-quantities", this::barrelDisplayLifecycle),
                 new Scenario("barrel-slimefun-cargo-metadata", this::barrelSlimefunCargoMetadata),
                 new Scenario("barrel-canonical-presentation-self-heal", this::barrelCanonicalPresentationSelfHeal),
@@ -169,6 +171,74 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
      * Native Cargo-facing insertion of two different registered Slimefun items.
      * Cosmetic Adventure component layouts may vary; lore and Slimefun identity may not.
      */
+    /**
+     * Paper's documented replacement for deprecated ItemStack.setType is
+     * withType + setting the returned stack in its destination inventory.
+     * This standalone fixture exercises both the actual old Foundry helper
+     * and the replacement's native ItemMeta/PDC invariants before any gameplay
+     * migration. A separate future fixture must test PlayerInventory writes.
+     */
+    private CompletableFuture<Check> foundryNativeBucketMetadata() {
+        return owner(() -> {
+            Check check = new Check();
+            ItemStack held = rich(Material.LAVA_BUCKET, 1, "foundry-lava");
+            var meta = held.getItemMeta();
+            meta.displayName(Component.text("Foundry lava", NamedTextColor.GRAY)
+                    .decoration(TextDecoration.ITALIC, false));
+            meta.lore(List.of(Component.text("Private owner metadata", NamedTextColor.AQUA)
+                    .decoration(TextDecoration.ITALIC, false)));
+            var ownerKey = new NamespacedKey(this, "foundry_owner");
+            var markerKey = new NamespacedKey(this, "marker");
+            var wideKey = new NamespacedKey(this, "wide");
+            meta.getPersistentDataContainer().set(ownerKey, PersistentDataType.STRING, "owner-A");
+            held.setItemMeta(meta);
+            Slimefun.getItemDataService().setItemData(held, "REINFORCED_PLATE");
+            ItemStack before = nativeCopy(held);
+            ItemStack candidate = held.withType(Material.BUCKET);
+            check.that(candidate != held,
+                    "Paper withType returns a new stack; no in-place aliasing");
+            check.that(candidate.getType() == Material.BUCKET && candidate.getAmount() == 1,
+                    "Modern bucket transition retains type and original amount");
+            check.item(before, held, "Modern withType leaves the source lava bucket untouched");
+            var originalMeta = held.getItemMeta();
+            var candidateMeta = candidate.getItemMeta();
+            check.that(java.util.Objects.equals(originalMeta.displayName(), candidateMeta.displayName())
+                    && java.util.Objects.equals(originalMeta.lore(), candidateMeta.lore()),
+                    "Modern bucket conversion retains exact rich Adventure name and ordered lore");
+            check.that("owner-A".equals(candidateMeta.getPersistentDataContainer()
+                    .get(ownerKey, PersistentDataType.STRING))
+                    && "foundry-lava".equals(candidateMeta.getPersistentDataContainer()
+                    .get(markerKey, PersistentDataType.STRING))
+                    && Long.valueOf(9_007_199_254_741_111L).equals(candidateMeta
+                    .getPersistentDataContainer().get(wideKey, PersistentDataType.LONG)),
+                    "Modern bucket conversion retains typed owner, string and long PDC");
+            check.that("REINFORCED_PLATE".equals(Slimefun.getItemDataService()
+                    .getItemData(candidateMeta).orElse(null)),
+                    "Modern bucket conversion retains the exact registered Slimefun PDC ID");
+            check.item(candidate, nativeCopy(candidate),
+                    "Converted item metadata survives real native byte serialization");
+            try {
+                Class<?> foundry = Class.forName(
+                    "io.ncbpfluffybear.fluffymachines.multiblocks.Foundry");
+                Method consume = foundry.getDeclaredMethod("consumeLavaBucketInPlace", ItemStack.class);
+                consume.setAccessible(true);
+                ItemStack actual = nativeCopy(before);
+                check.that(Boolean.TRUE.equals(consume.invoke(null, actual))
+                        && actual.getType() == Material.BUCKET && actual.getAmount() == 1,
+                        "Registered Foundry legacy bridge changes the original lava-bucket stack");
+                check.that(Boolean.FALSE.equals(consume.invoke(null, actual)),
+                        "Legacy bridge does not consume a bucket twice");
+                check.that(actual.getType() == Material.BUCKET && actual.getAmount() == 1,
+                        "Legacy bridge retains its in-place material and quantity after repeat");
+            } catch (ReflectiveOperationException ex) {
+                throw new IllegalStateException("Production Foundry bucket helper unavailable", ex);
+            }
+            check.note("This tests detached Paper stacks, not actual PlayerInventory writes or "
+                    + "atomicity if a later Foundry animation fails.");
+            return check;
+        });
+    }
+
     /** Run the actual production CargoNetworkTask with real wall-head nodes and a chest source. */
     private void runNativeCargoNetwork(CargoNet network, Location input, Location output, boolean withOutput) {
         try {
