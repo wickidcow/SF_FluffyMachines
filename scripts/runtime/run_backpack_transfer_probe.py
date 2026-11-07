@@ -41,6 +41,7 @@ ORDINARY_CONTROLS = {
     "unloader-empty-backpack-routing", "unloader-nonempty-output-filled", "removed-machine",
 }
 EXPECTED_CASES = NEGATIVE_CONTROLS | ORDINARY_CONTROLS | {
+    "foundry-native-bucket-metadata",
     "loader-cache-eviction", "unloader-cache-eviction", "loader-menu-replacement", "unloader-menu-replacement",
     "barrel-display-and-quantities", "barrel-slimefun-cargo-metadata",
     "barrel-canonical-presentation-self-heal", "barrel-cargo-restart-write", "barrel-actual-cargo-network"}
