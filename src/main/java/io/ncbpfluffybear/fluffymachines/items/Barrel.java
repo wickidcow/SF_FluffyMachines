@@ -568,23 +568,31 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
 
     private static Component normalizedItemRoot(Component input) {
         Component root = input;
-        while (root instanceof TextComponent text
-                && text.content().isEmpty()
-                && text.style().equals(Style.empty())
-                && text.children().size() == 1) {
-            root = text.children().get(0);
-        }
+        // Normalize one root at a time: clearing redundant FALSE decorations
+        // may turn an otherwise empty legacy wrapper into an unstyled one.
+        // Only then is it safe to unwrap its sole child. Never discard
+        // ITALIC, color, events, insertion, or sibling components.
+        while (true) {
+            Style rootStyle = root.style();
+            Style.Builder normalized = rootStyle.toBuilder();
+            for (TextDecoration decoration : new TextDecoration[] {
+                    TextDecoration.BOLD, TextDecoration.UNDERLINED,
+                    TextDecoration.STRIKETHROUGH, TextDecoration.OBFUSCATED }) {
+                if (rootStyle.decoration(decoration) == TextDecoration.State.FALSE) {
+                    normalized.decoration(decoration, TextDecoration.State.NOT_SET);
+                }
+            }
+            root = root.style(normalized.build());
 
-        Style rootStyle = root.style();
-        Style.Builder normalized = rootStyle.toBuilder();
-        for (TextDecoration decoration : new TextDecoration[] {
-                TextDecoration.BOLD, TextDecoration.UNDERLINED,
-                TextDecoration.STRIKETHROUGH, TextDecoration.OBFUSCATED }) {
-            if (rootStyle.decoration(decoration) == TextDecoration.State.FALSE) {
-                normalized.decoration(decoration, TextDecoration.State.NOT_SET);
+            if (root instanceof TextComponent text
+                    && text.content().isEmpty()
+                    && text.style().equals(Style.empty())
+                    && text.children().size() == 1) {
+                root = text.children().get(0);
+            } else {
+                return root;
             }
         }
-        return root.style(normalized.build());
     }
 
     static boolean samePlainLore(List<Component> first, List<Component> second) {
