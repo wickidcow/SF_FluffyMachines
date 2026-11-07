@@ -46,11 +46,15 @@ public class Foundry extends MultiBlockMachine {
      * cover material, quantity, reference identity and non-lava inputs only;
      * they are not proof of custom ItemMeta retention on a running server.
      */
+    static Material materialAfterIgnition(Material current) {
+        return current == Material.LAVA_BUCKET ? Material.BUCKET : current;
+    }
+
     static boolean consumeLavaBucketInPlace(ItemStack held) {
         if (held.getType() != Material.LAVA_BUCKET) {
             return false;
         }
-        held.setType(Material.BUCKET);
+        held.setType(materialAfterIgnition(held.getType()));
         return true;
     }
 
