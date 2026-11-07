@@ -36,6 +36,24 @@ public class Foundry extends MultiBlockMachine {
         }, BlockFace.DOWN);
     }
 
+    /**
+     * Legacy Foundry ignition changes the held ItemStack itself, before the
+     * armor-stand animation and furnace update. Replacing the stack with a new
+     * BUCKET here could lose custom item state and change historic gameplay.
+     *
+     * Keep this deprecated mutation until native tests prove the exact item
+     * metadata and Slimefun PDC survive a modern API migration. Tests below
+     * cover material, quantity, reference identity and non-lava inputs only;
+     * they are not proof of custom ItemMeta retention on a running server.
+     */
+    static boolean consumeLavaBucketInPlace(ItemStack held) {
+        if (held.getType() != Material.LAVA_BUCKET) {
+            return false;
+        }
+        held.setType(Material.BUCKET);
+        return true;
+    }
+
     @Override
     public void onInteract(Player p, Block b) {
         // Verify a vanilla blast furnace is not being used
@@ -48,9 +66,9 @@ public class Foundry extends MultiBlockMachine {
             blockData.setData("accessible", "true");
             Utils.send(p, "&eFoundry registered. Next, hold a lava bucket and right-click the Superheated Furnace to ignite it.");
         } else if (blockData.getData("ignited") == null) {
-            if (p.getInventory().getItemInMainHand().getType() == Material.LAVA_BUCKET) {
-
-                p.getInventory().getItemInMainHand().setType(Material.BUCKET);
+            // Preserve the old in-place bucket transition until a native Paper
+            // metadata/Slimefun-identity migration test proves a replacement safe.
+            if (consumeLavaBucketInPlace(p.getInventory().getItemInMainHand())) {
                 ArmorStand lavaStand = (ArmorStand) p.getWorld().spawnEntity(b.getLocation().add(0.5, -3, 0.5),
                     EntityType.ARMOR_STAND);
                 lavaStand.getEquipment().setHelmet(new CustomItemStack(
