@@ -120,6 +120,7 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
     private CompletableFuture<Void> runChecks() {
         List<Scenario> scenarios = List.of(
                 new Scenario("foundry-native-bucket-metadata", this::foundryNativeBucketMetadata),
+                new Scenario("paxel-native-item-metadata", this::paxelNativeItemMetadata),
                 new Scenario("barrel-display-and-quantities", this::barrelDisplayLifecycle),
                 new Scenario("barrel-slimefun-cargo-metadata", this::barrelSlimefunCargoMetadata),
                 new Scenario("barrel-canonical-presentation-self-heal", this::barrelCanonicalPresentationSelfHeal),
@@ -254,6 +255,111 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
             }
             check.note("This tests detached Paper stacks, not actual PlayerInventory writes or "
                     + "atomicity if a later Foundry animation fails.");
+            return check;
+        });
+    }
+
+    /**
+     * Baseline the exact production Paxel in-place tool mutation against
+     * Paper's detached withType candidate on both supported tool tiers.
+     * The fixture never changes a real player's inventory.
+     */
+    private CompletableFuture<Check> paxelNativeItemMetadata() {
+        return owner(() -> {
+            Check check = new Check();
+            try {
+                Class<?> paxel = Class.forName(
+                        "io.ncbpfluffybear.fluffymachines.items.tools.Paxel");
+                Method mine = paxel.getDeclaredMethod(
+                        "materialForBlock", Material.class, boolean.class, boolean.class);
+                Method hit = paxel.getDeclaredMethod("materialForHit", Material.class);
+                Method change = paxel.getDeclaredMethod(
+                        "changeToolTypeInPlace", ItemStack.class, Material.class);
+                mine.setAccessible(true);
+                hit.setAccessible(true);
+                change.setAccessible(true);
+
+                for (Material original : new Material[] {
+                        Material.DIAMOND_PICKAXE, Material.NETHERITE_PICKAXE
+                }) {
+                    for (boolean combat : new boolean[] {false, true}) {
+                        String label = original + (combat ? " hit" : " mine");
+                        ItemStack held = rich(original, 1, "paxel-" + label);
+                        var meta = held.getItemMeta();
+                        meta.displayName(Component.text("Paxel " + label, NamedTextColor.AQUA)
+                                .decoration(TextDecoration.ITALIC, false));
+                        meta.lore(List.of(Component.text("Preserve owner data", NamedTextColor.GRAY)
+                                .decoration(TextDecoration.ITALIC, false)));
+                        var ownerKey = new NamespacedKey(this, "paxel_owner");
+                        var markerKey = new NamespacedKey(this, "marker");
+                        var wideKey = new NamespacedKey(this, "wide");
+                        meta.getPersistentDataContainer().set(
+                                ownerKey, PersistentDataType.STRING, "player-owned");
+                        if (meta instanceof org.bukkit.inventory.meta.Damageable damageable) {
+                            damageable.setDamage(17);
+                        }
+                        held.setItemMeta(meta);
+                        held.addUnsafeEnchantment(
+                                org.bukkit.enchantments.Enchantment.EFFICIENCY, 2);
+                        Slimefun.getItemDataService().setItemData(held, "PAXEL");
+                        ItemStack before = nativeCopy(held);
+                        Material target = combat
+                                ? (Material) hit.invoke(null, original)
+                                : (Material) mine.invoke(null, original, false, true);
+
+                        // A modern replacement returns a detached object; it
+                        // cannot silently be substituted for the existing alias.
+                        ItemStack candidate = held.withType(target);
+                        check.that(candidate != held, label + ": withType is detached");
+                        check.item(before, held, label + ": candidate leaves original untouched");
+
+                        ItemStack actual = nativeCopy(before);
+                        ItemStack originalAlias = actual;
+                        change.invoke(null, actual, target);
+                        check.that(actual == originalAlias,
+                                label + ": production mutation keeps original reference");
+                        check.that(actual.getType() == target && actual.getAmount() == 1,
+                                label + ": production mutation preserves quantity and tool selection");
+                        var actualMeta = actual.getItemMeta();
+                        var beforeMeta = before.getItemMeta();
+                        check.that(java.util.Objects.equals(
+                                    beforeMeta.displayName(), actualMeta.displayName())
+                                && java.util.Objects.equals(beforeMeta.lore(), actualMeta.lore()),
+                                label + ": production mutation retains Adventure name/lore");
+                        check.that(actualMeta.getPersistentDataContainer()
+                                    .get(ownerKey, PersistentDataType.STRING).equals("player-owned")
+                                && ("paxel-" + label).equals(actualMeta.getPersistentDataContainer()
+                                    .get(markerKey, PersistentDataType.STRING))
+                                && Long.valueOf(9_007_199_254_741_111L).equals(
+                                    actualMeta.getPersistentDataContainer()
+                                            .get(wideKey, PersistentDataType.LONG)),
+                                label + ": production mutation retains typed PDC");
+                        check.that("PAXEL".equals(Slimefun.getItemDataService()
+                                .getItemData(actualMeta).orElse(null)),
+                                label + ": production mutation retains Slimefun ID");
+                        check.that(actual.getEnchantments().equals(before.getEnchantments())
+                                && actualMeta instanceof org.bukkit.inventory.meta.Damageable
+                                && ((org.bukkit.inventory.meta.Damageable) actualMeta).getDamage() == 17,
+                                label + ": production mutation retains enchants and damage");
+                        check.item(actual, nativeCopy(actual),
+                                label + ": production metadata survives native item serialization");
+                        check.that(candidate.getType() == actual.getType()
+                                && candidate.getAmount() == actual.getAmount(),
+                                label + ": detached candidate preserves tool type and amount");
+                        check.that(java.util.Objects.equals(candidate.getItemMeta().displayName(),
+                                    actualMeta.displayName())
+                                && java.util.Objects.equals(candidate.getItemMeta().lore(),
+                                    actualMeta.lore())
+                                && candidate.getItemMeta().getPersistentDataContainer()
+                                    .equals(actualMeta.getPersistentDataContainer()),
+                                label + ": detached candidate retains same Adventure and PDC");
+                    }
+                }
+                check.note("Detached item parity and current in-place behavior only; "
+                        + "not a PlayerInventory replacement or live item upgrade.");
+            } catch (ReflectiveOperationException ex) {
+                throw new IllegalStateException("Production Paxel conversion unavailable", ex);
+            }
             return check;
         });
     }

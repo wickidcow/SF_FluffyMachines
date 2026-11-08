@@ -79,9 +79,7 @@ public class Paxel extends SlimefunItem implements Listener, NotPlaceable {
             ItemStack item = p.getInventory().getItemInMainHand();
             Material blockType = b.getType();
 
-            // Keep mutating the original ItemStack: replacing it would discard
-            // legacy Slimefun identity, custom model data, lore and durability.
-            item.setType(materialForBlock(
+            changeToolTypeInPlace(item, materialForBlock(
                 item.getType(),
                 SlimefunTag.EXPLOSIVE_SHOVEL_BLOCKS.isTagged(blockType),
                 axeBlocks.contains(blockType)
@@ -101,10 +99,19 @@ public class Paxel extends SlimefunItem implements Listener, NotPlaceable {
 
         if (sfItem instanceof Paxel) {
 
-            item.setType(materialForHit(item.getType()));
+            changeToolTypeInPlace(item, materialForHit(item.getType()));
         }
 
     }
+    /**
+     * Preserve the historically in-place mutation for both mining and combat.
+     * Do not replace the held stack until native inventory-write parity is proved:
+     * addons and the player inventory may still reference this exact object.
+     */
+    static void changeToolTypeInPlace(ItemStack tool, Material target) {
+        tool.setType(target);
+    }
+
     static Material materialForBlock(Material currentTool, boolean shovelBlock, boolean axeBlock) {
         boolean netherite = isNetheriteTool(currentTool);
         // The historical shovel-tag check takes precedence over the axe list.
