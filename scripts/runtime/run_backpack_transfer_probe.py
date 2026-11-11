@@ -41,13 +41,14 @@ ORDINARY_CONTROLS = {
     "unloader-empty-backpack-routing", "unloader-nonempty-output-filled", "removed-machine",
 }
 EXPECTED_CASES = NEGATIVE_CONTROLS | ORDINARY_CONTROLS | {
+    "dolly-native-locked-chest-state",
     "foundry-native-bucket-metadata",
     "paxel-native-item-metadata",
     "loader-cache-eviction", "unloader-cache-eviction", "loader-menu-replacement", "unloader-menu-replacement",
     "barrel-display-and-quantities", "barrel-slimefun-cargo-metadata",
     "barrel-canonical-presentation-self-heal", "barrel-cargo-restart-write", "barrel-actual-cargo-network"}
 EXPECTED_RESTART_CASES = {f"restart-{identity}-BACKPACK_{machine}"
-                          for identity in ("pdc", "legacy") for machine in ("LOADER", "UNLOADER")} | {"restart-barrel-cargo-contents"}
+                          for identity in ("pdc", "legacy") for machine in ("LOADER", "UNLOADER")} | {"restart-barrel-cargo-contents", "restart-dolly-locked-chest-state"}
 
 
 def inspect_log(path: Path) -> dict:

@@ -119,6 +119,7 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
 
     private CompletableFuture<Void> runChecks() {
         List<Scenario> scenarios = List.of(
+                new Scenario("dolly-native-locked-chest-state", this::dollyNativeLockedChestState),
                 new Scenario("foundry-native-bucket-metadata", this::foundryNativeBucketMetadata),
                 new Scenario("paxel-native-item-metadata", this::paxelNativeItemMetadata),
                 new Scenario("barrel-display-and-quantities", this::barrelDisplayLifecycle),
@@ -162,6 +163,131 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
             writeJson(getDataFolder().toPath().resolve("restart-fixtures.json"), restartFixtures);
             return (Void) null;
         }));
+    }
+
+    /**
+     * Native, non-player Dolly state boundary: the existing production PDC writer
+     * must carry a real locked chest's lock and custom name into the Dolly item;
+     * the existing production restorer must then apply the exact lock and name
+     * to a native chest. This deliberately does NOT impersonate a player's
+     * Dolly pickup/place handler or move a historical owner's inventory.
+     * A second Paper server process checks vanilla block-state persistence.
+     */
+    private CompletableFuture<Check> dollyNativeLockedChestState() {
+        return owner(() -> {
+            Check check = new Check();
+            SlimefunItem registered = SlimefunItem.getById("DOLLY");
+            if (registered == null) {
+                throw new IllegalStateException("Registered production Dolly is missing");
+            }
+            try {
+                Class<?> dollyClass = Class.forName(
+                        "io.ncbpfluffybear.fluffymachines.items.tools.Dolly");
+                check.that(dollyClass.isInstance(registered),
+                        "Native registered DOLLY uses the production Dolly implementation");
+                var save = dollyClass.getDeclaredMethod("setStoredChestData",
+                        ItemStack.class, Material.class, Material.class, String.class, String.class);
+                var restore = dollyClass.getDeclaredMethod("applyStoredChestData",
+                        ItemStack.class, Block.class, Block.class);
+                save.setAccessible(true);
+                restore.setAccessible(true);
+
+                fixtureNumber++;
+                Location sourceLocation = new Location(world, 2176 + fixtureNumber * 128, 64, 2048);
+                Location restoredLocation = sourceLocation.clone().add(3, 0, 0);
+                holdChunk(sourceLocation);
+                Block source = sourceLocation.getBlock();
+                source.setType(Material.TRAPPED_CHEST, false);
+                org.bukkit.block.Chest sourceState = (org.bukkit.block.Chest) source.getState();
+                String lock = "dolly-native-owner-lock";
+                String name = "Native Dolly Locked Chest";
+                writeNativeChestLock(sourceState, lock);
+                sourceState.customName(Component.text(name, NamedTextColor.AQUA));
+                check.that(sourceState.update(true, false), "Native source chest lock/name committed");
+                ItemStack originalContent = rich(Material.DIAMOND, 19, "dolly-lock-content");
+                ((org.bukkit.block.Chest) source.getState()).getBlockInventory()
+                        .setItem(0, originalContent.clone());
+
+                ItemStack dolly = registered.getItem().clone();
+                var savedSource = (org.bukkit.block.Chest) source.getState();
+                String originalLock = readNativeChestLock(savedSource);
+                check.that(lock.equals(originalLock) && savedSource.isLocked(),
+                        "Native Paper source chest retains the exact lock");
+                save.invoke(registered, dolly, source.getType(), null, originalLock,
+                        Utils.legacyString(savedSource.customName()));
+                var pdc = dolly.getItemMeta().getPersistentDataContainer();
+                var addon = Bukkit.getPluginManager().getPlugin("FluffyMachines");
+                if (addon == null) throw new IllegalStateException("Production FluffyMachines unavailable");
+                check.that(lock.equals(pdc.get(new NamespacedKey(addon, "dolly_chest_lock"),
+                                PersistentDataType.STRING))
+                        && Material.TRAPPED_CHEST.name().equals(pdc.get(
+                                new NamespacedKey(addon, "dolly_chest_type"), PersistentDataType.STRING))
+                        && pdc.get(new NamespacedKey(addon, "dolly_chest_name"),
+                                PersistentDataType.STRING) != null,
+                        "Actual Dolly state writer preserves typed chest type, lock and custom name PDC");
+                check.item(dolly, nativeCopy(dolly),
+                        "Dolly lock and owner-independent metadata survive native item serialization");
+                check.item(originalContent, ((org.bukkit.block.Chest) source.getState())
+                        .getBlockInventory().getItem(0),
+                        "Reading chest and writing Dolly PDC does not consume the source payload");
+
+                Block restored = restoredLocation.getBlock();
+                restored.setType(Material.TRAPPED_CHEST, false);
+                ItemStack dollySnapshot = nativeCopy(dolly);
+                restore.invoke(registered, dolly, restored, null);
+                var restoredState = (org.bukkit.block.Chest) restored.getState();
+                check.that(lock.equals(readNativeChestLock(restoredState))
+                        && restoredState.isLocked(),
+                        "Actual Dolly state restorer applies exact lock to native Paper chest");
+                check.that(restoredState.customName() != null
+                        && name.equals(PlainTextComponentSerializer.plainText()
+                                .serialize(restoredState.customName())),
+                        "Actual Dolly state restorer applies original plain custom chest name");
+                check.item(dollySnapshot, dolly,
+                        "Dolly state restore leaves serialized PDC and item identity untouched");
+
+                // The production storage transaction is not tested here. Seed a
+                // separate native chest with an independent cloned fixture
+                // solely to prove that its contents and lock survive restart.
+                restoredState.getBlockInventory().setItem(0, originalContent.clone());
+                check.item(originalContent, ((org.bukkit.block.Chest) restored.getState())
+                        .getBlockInventory().getItem(0), "Native restored chest stores 19 items exactly");
+                Map<String, Object> fixture = new LinkedHashMap<>();
+                fixture.put("x", restored.getX());
+                fixture.put("y", restored.getY());
+                fixture.put("z", restored.getZ());
+                fixture.put("type", restored.getType().name());
+                fixture.put("lock", lock);
+                fixture.put("name", name);
+                fixture.put("dolly", Base64.getEncoder().encodeToString(dolly.serializeAsBytes()));
+                fixture.put("contents", encodeItems(
+                        ((org.bukkit.block.Chest) restored.getState()).getBlockInventory()
+                                .getStorageContents()));
+                writeJson(getDataFolder().toPath().resolve("dolly-lock-restart-fixture.json"), fixture);
+                check.note("Production Dolly lock/name PDC writer + restorer on real chest; "
+                        + "not a player-triggered pickup/place or crash-atomic inventory transfer.");
+            } catch (ReflectiveOperationException ex) {
+                throw new IllegalStateException("Production Dolly chest state bridge unavailable", ex);
+            }
+            return check;
+        });
+    }
+
+    /** Reflect legacy Paper lock methods without adding compiler deprecation debt. */
+    private static void writeNativeChestLock(org.bukkit.block.Chest chest, String lock) {
+        try {
+            org.bukkit.block.Lockable.class.getMethod("setLock", String.class).invoke(chest, lock);
+        } catch (ReflectiveOperationException ex) {
+            throw new IllegalStateException("Paper chest lock write API unavailable", ex);
+        }
+    }
+
+    private static String readNativeChestLock(org.bukkit.block.Chest chest) {
+        try {
+            return (String) org.bukkit.block.Lockable.class.getMethod("getLock").invoke(chest);
+        } catch (ReflectiveOperationException ex) {
+            throw new IllegalStateException("Paper chest lock read API unavailable", ex);
+        }
     }
 
     /**
@@ -1378,7 +1504,46 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                             return (Void) null;
                         }));
             });
-        });
+        }).thenCompose(v -> owner(() -> {
+            // Strictly require the Dolly chest fixture made by the seed phase.
+            // Never interpret a missing chest/lock/contents as a clean empty state.
+            final Map<String, Object> fixture;
+            try {
+                Type mapType = new TypeToken<Map<String, Object>>() {}.getType();
+                fixture = JSON.fromJson(Files.readString(getDataFolder().toPath()
+                        .resolve("dolly-lock-restart-fixture.json")), mapType);
+            } catch (IOException failure) {
+                throw new IllegalStateException("Missing native Dolly lock restart evidence", failure);
+            }
+            if (fixture == null) throw new IllegalStateException("Missing Dolly lock fixture");
+            Location location = new Location(world, ((Number) fixture.get("x")).intValue(),
+                    ((Number) fixture.get("y")).intValue(), ((Number) fixture.get("z")).intValue());
+            holdChunk(location);
+            Block block = location.getBlock();
+            Check check = new Check();
+            check.that(block.getType().name().equals(fixture.get("type")),
+                    "Original restored Dolly chest material survives Paper restart");
+            if (!(block.getState() instanceof org.bukkit.block.Chest chest))
+                throw new IllegalStateException("Native restored Dolly chest missing after restart");
+            String lock = (String) fixture.get("lock");
+            check.that(chest.isLocked() && lock.equals(readNativeChestLock(chest)),
+                    "Production Dolly-restored chest lock survives separate Paper process");
+            check.that(chest.customName() != null && fixture.get("name").equals(
+                    PlainTextComponentSerializer.plainText().serialize(chest.customName())),
+                    "Production Dolly-restored chest custom name survives Paper restart");
+            check.items(decodeItems(fixture.get("contents")),
+                    chest.getBlockInventory().getStorageContents(),
+                    "Exact native Dolly chest contents survive Paper restart with no loss");
+            ItemStack saved = ItemStack.deserializeBytes(
+                    Base64.getDecoder().decode((String) fixture.get("dolly")));
+            var addon = Bukkit.getPluginManager().getPlugin("FluffyMachines");
+            if (addon == null) throw new IllegalStateException("FluffyMachines plugin missing");
+            check.that(lock.equals(saved.getItemMeta().getPersistentDataContainer().get(
+                    new NamespacedKey(addon, "dolly_chest_lock"), PersistentDataType.STRING)),
+                    "Dolly PDC lock persisted through native ItemStack bytes roundtrip");
+            results.add(check.result("restart-dolly-locked-chest-state"));
+            return (Void) null;
+        }));
     }
 
     private void remember(Machine m, Bag a, boolean legacy) {
