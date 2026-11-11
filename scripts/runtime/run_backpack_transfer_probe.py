@@ -46,9 +46,11 @@ EXPECTED_CASES = NEGATIVE_CONTROLS | ORDINARY_CONTROLS | {
     "paxel-native-item-metadata",
     "loader-cache-eviction", "unloader-cache-eviction", "loader-menu-replacement", "unloader-menu-replacement",
     "barrel-display-and-quantities", "barrel-slimefun-cargo-metadata",
-    "barrel-canonical-presentation-self-heal", "barrel-cargo-restart-write", "barrel-actual-cargo-network"}
+    "barrel-canonical-presentation-self-heal", "barrel-historical-item-nonmerge",
+    "barrel-cargo-restart-write", "barrel-actual-cargo-network"}
 EXPECTED_RESTART_CASES = {f"restart-{identity}-BACKPACK_{machine}"
-                          for identity in ("pdc", "legacy") for machine in ("LOADER", "UNLOADER")} | {"restart-barrel-cargo-contents", "restart-dolly-locked-chest-state"}
+                          for identity in ("pdc", "legacy") for machine in ("LOADER", "UNLOADER")} | {"restart-barrel-cargo-contents", "restart-dolly-locked-chest-state",
+                                                                       "restart-barrel-historical-item-nonmerge"}
 
 
 def inspect_log(path: Path) -> dict:
