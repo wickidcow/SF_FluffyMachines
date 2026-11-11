@@ -125,6 +125,7 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                 new Scenario("barrel-display-and-quantities", this::barrelDisplayLifecycle),
                 new Scenario("barrel-slimefun-cargo-metadata", this::barrelSlimefunCargoMetadata),
                 new Scenario("barrel-canonical-presentation-self-heal", this::barrelCanonicalPresentationSelfHeal),
+                new Scenario("barrel-historical-item-nonmerge", this::barrelHistoricalItemNonmerge),
                 new Scenario("barrel-cargo-restart-write", this::barrelRestartWrite),
                 new Scenario("barrel-actual-cargo-network", this::barrelActualCargoNetwork),
                 new Scenario("normal-loader", () -> normal(true)),
@@ -775,6 +776,104 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
         });
     }
 
+
+    /**
+     * Preserve two same-ID Slimefun stacks when the older item has genuinely
+     * different Adventure bold formatting. Unlike a harmless empty wrapper,
+     * the changed decoration is not permission to rewrite historical items.
+     * This covers the real barrel ticker and physical Cargo-facing slots.
+     */
+    private CompletableFuture<Check> barrelHistoricalItemNonmerge() {
+        return owner(() -> {
+            Check check = new Check();
+            SlimefunItem barrelItem = SlimefunItem.getById("SMALL_FLUFFY_BARREL");
+            SlimefunItem resource = SlimefunItem.getById("REINFORCED_PLATE");
+            if (!(barrelItem instanceof Barrel barrel) || resource == null)
+                throw new IllegalStateException("Registered historical identity fixtures missing");
+            fixtureNumber++;
+            Location location = new Location(world, 2048 + fixtureNumber * 128, 64, 1664);
+            holdChunk(location);
+            blocks.getChunkData(location.getChunk());
+            Block block = location.getBlock();
+            block.setType(barrelItem.getItem().getType(), false);
+            SlimefunBlockData data = blocks.createBlock(location, barrelItem.getId());
+            BlockMenu menu = data.getBlockMenu();
+            if (menu == null || !data.isDataLoaded())
+                throw new IllegalStateException("Native historical barrel menu unavailable");
+            barrel.setStored(block, 0);
+
+            ItemStack current = resource.getItem().clone();
+            current.setAmount(12);
+            ItemStack historical = resource.getItem().clone();
+            historical.setAmount(37);
+            var historicalMeta = historical.getItemMeta();
+            Component originalName = historicalMeta.displayName();
+            if (originalName == null)
+                throw new IllegalStateException("Historical Slimefun fixture has no Adventure name");
+            TextDecoration.State oldBold = originalName.decoration(TextDecoration.BOLD);
+            TextDecoration.State historicalBold = oldBold == TextDecoration.State.TRUE
+                    ? TextDecoration.State.FALSE : TextDecoration.State.TRUE;
+            historicalMeta.displayName(Component.text("").append(
+                    originalName.decoration(TextDecoration.BOLD, historicalBold)));
+            historical.setItemMeta(historicalMeta);
+            check.that(!historical.isSimilar(current),
+                    "Real Paper detects distinct historical bold metadata at matching Slimefun ID");
+            check.that(PlainTextComponentSerializer.plainText().serialize(
+                        historical.getItemMeta().displayName()).equals(
+                        PlainTextComponentSerializer.plainText().serialize(
+                                current.getItemMeta().displayName())),
+                    "Different historical Adventure structure keeps identical visible item name");
+            check.that(historical.getItemMeta().getPersistentDataContainer()
+                        .equals(current.getItemMeta().getPersistentDataContainer())
+                    && resource.getId().equals(Slimefun.getItemDataService()
+                            .getItemData(historical.getItemMeta()).orElse(null)),
+                    "Historical and new templates retain the same registered typed Slimefun PDC");
+            ItemStack historicalBefore = nativeCopy(historical);
+            ItemStack currentBefore = nativeCopy(current);
+
+            int[] inputs = menu.getPreset().getSlotsAccessedByItemTransport(
+                    menu, ItemTransportFlow.INSERT, historical);
+            check.that(menu.pushItem(historical.clone(), inputs) == null,
+                    "Physical barrel input accepts the historical stack of 37");
+            barrelItem.getBlockTicker().tick(block, barrelItem, data);
+            check.that(barrel.visibleContents(block).safe()
+                        && barrel.visibleContents(block).amount() == 37L,
+                    "Registered barrel preserves all 37 old items in its real output/reserve");
+            check.that(menu.pushItem(current.clone(), inputs) == null,
+                    "New registered 12-item input reaches the Cargo-facing barrel slots");
+            barrelItem.getBlockTicker().tick(block, barrelItem, data);
+            ItemStack buffered = menu.getItemInSlot(24);
+            ItemStack pending = menu.getItemInSlot(19);
+            check.that(buffered != null && buffered.getAmount() == 37
+                        && buffered.isSimilar(historical),
+                    "Physical barrel output keeps 37 original historical items and exact metadata");
+            check.that(pending != null && pending.getAmount() == 12
+                        && pending.isSimilar(current),
+                    "Real barrel ticker rejects identity-changing fresh input without consuming it");
+            check.that(barrel.visibleContents(block).safe()
+                        && barrel.visibleContents(block).amount() == 37L
+                        && barrel.getStored(block) == 0,
+                    "Historical barrel ledger remains 37, while 12 incompatible items stay pending");
+            check.that(barrel.getStoredItem(block).isSimilar(historical)
+                        && !barrel.getStoredItem(block).isSimilar(current),
+                    "Barrel does not silently rewrite a noncosmetic historical display template");
+            check.item(historicalBefore, historical,
+                    "Original historical source stack survives all native barrel operations");
+            check.item(currentBefore, current,
+                    "Registered source stack remains unchanged after failed historical merge");
+
+            Map<String, Object> fixture = new LinkedHashMap<>();
+            fixture.put("x", location.getBlockX());
+            fixture.put("y", location.getBlockY());
+            fixture.put("z", location.getBlockZ());
+            fixture.put("historical", Base64.getEncoder().encodeToString(historical.serializeAsBytes()));
+            fixture.put("current", Base64.getEncoder().encodeToString(current.serializeAsBytes()));
+            writeJson(getDataFolder().toPath().resolve("barrel-historical-nonmerge-fixture.json"), fixture);
+            check.note("Noncosmetic historical identity and exact counts retained; "
+                    + "no legacy item rewrite, no claim that owner worlds match this fixture.");
+            return check;
+        });
+    }
 
     /**
      * Start with a filled barrel and a historically encoded template, without a
@@ -1543,7 +1642,64 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                     "Dolly PDC lock persisted through native ItemStack bytes roundtrip");
             results.add(check.result("restart-dolly-locked-chest-state"));
             return (Void) null;
-        }));
+        })).thenCompose(v -> {
+            final Map<String, Object> fixture;
+            try {
+                Type mapType = new TypeToken<Map<String, Object>>() {}.getType();
+                fixture = JSON.fromJson(Files.readString(getDataFolder().toPath()
+                        .resolve("barrel-historical-nonmerge-fixture.json")), mapType);
+            } catch (IOException failure) {
+                return CompletableFuture.failedFuture(new IllegalStateException(
+                        "Missing historical barrel nonmerge fixture", failure));
+            }
+            if (fixture == null)
+                return CompletableFuture.failedFuture(new IllegalStateException(
+                        "Native historical barrel fixture missing after restart"));
+            return ownerCompose(() -> {
+                Location location = new Location(world, ((Number) fixture.get("x")).intValue(),
+                        ((Number) fixture.get("y")).intValue(), ((Number) fixture.get("z")).intValue());
+                holdChunk(location);
+                SlimefunBlockData data = blocks.getBlockData(location);
+                if (data == null)
+                    throw new IllegalStateException("Historical barrel not persisted across Paper restart");
+                if (!data.isDataLoaded()) blocks.loadBlockData(data);
+                return waitUntil(() -> data.isDataLoaded() && data.getBlockMenu() != null, 100)
+                        .thenCompose(ready -> owner(() -> {
+                            BlockMenu menu = data.getBlockMenu();
+                            SlimefunItem sf = SlimefunItem.getById("SMALL_FLUFFY_BARREL");
+                            if (!(sf instanceof Barrel barrel) || menu == null)
+                                throw new IllegalStateException("Native historical barrel not registered");
+                            Block block = location.getBlock();
+                            ItemStack historical = ItemStack.deserializeBytes(Base64.getDecoder().decode(
+                                    (String) fixture.get("historical")));
+                            ItemStack current = ItemStack.deserializeBytes(Base64.getDecoder().decode(
+                                    (String) fixture.get("current")));
+                            Check check = new Check();
+                            ItemStack buffered = menu.getItemInSlot(24);
+                            ItemStack pending = menu.getItemInSlot(19);
+                            check.that(buffered != null && buffered.getAmount() == 37
+                                        && buffered.isSimilar(historical),
+                                    "37 historical items remain physically buffered after restart");
+                            check.that(pending != null && pending.getAmount() == 12
+                                        && pending.isSimilar(current),
+                                    "12 different-format new Slimefun items remain in input after restart");
+                            check.that(barrel.visibleContents(block).safe()
+                                        && barrel.visibleContents(block).amount() == 37L
+                                        && barrel.getStored(block) == 0,
+                                    "Saved historical reserve+output total is 37 with no invented merging");
+                            sf.getBlockTicker().tick(block, sf, data);
+                            check.that(menu.getItemInSlot(19) != null
+                                        && menu.getItemInSlot(19).isSimilar(current)
+                                        && menu.getItemInSlot(19).getAmount() == 12
+                                        && menu.getItemInSlot(24) != null
+                                        && menu.getItemInSlot(24).isSimilar(historical)
+                                        && menu.getItemInSlot(24).getAmount() == 37,
+                                    "Actual first restarted barrel tick conserves both distinct item populations");
+                            results.add(check.result("restart-barrel-historical-item-nonmerge"));
+                            return (Void) null;
+                        }));
+            });
+        });
     }
 
     private void remember(Machine m, Bag a, boolean legacy) {
