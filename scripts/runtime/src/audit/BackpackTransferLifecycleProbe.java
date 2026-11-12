@@ -1737,6 +1737,17 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                             Check check = new Check();
                             check.that(fixture.get("id").equals(data.getSfId()),
                                     "network-routed barrel registration survives separate Paper process");
+                            // A restart cannot resurrect the source chest's exported
+                            // 95 items while retaining the barrel outputs: check both
+                            // sides of the real Cargo transfer ledger.
+                            Block source = location.clone().add(2, 0, 0).getBlock();
+                            if (!(source.getState() instanceof org.bukkit.block.Chest chest))
+                                throw new IllegalStateException("Cargo source chest missing after restart");
+                            int sourceStock = Arrays.stream(chest.getBlockInventory().getStorageContents())
+                                    .filter(java.util.Objects::nonNull)
+                                    .mapToInt(ItemStack::getAmount).sum();
+                            check.that(sourceStock == 0,
+                                    "original Cargo source chest stays empty after restart (no source-side duplication)");
                             check.that(barrel.getStored(block) == 0,
                                     "zero saved reserve remains zero without losing buffered Cargo stock");
                             check.that(menu.getItemInSlot(19) == null && menu.getItemInSlot(20) == null,
