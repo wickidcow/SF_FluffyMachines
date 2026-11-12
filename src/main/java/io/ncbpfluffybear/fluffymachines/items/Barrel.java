@@ -785,7 +785,7 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
                     inv.setItem(i, new CustomItemStack(storedItem, stored));
                     stored = 0;
                 } else {
-                    if (outI > 1) {
+                    if (outI >= OUTPUT_SLOTS.length) {
                         break;
                     }
                     ItemStack item = menu.getItemInSlot(OUTPUT_SLOTS[outI]);

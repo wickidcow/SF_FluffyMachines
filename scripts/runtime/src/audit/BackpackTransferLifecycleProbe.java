@@ -123,6 +123,7 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                 new Scenario("foundry-native-bucket-metadata", this::foundryNativeBucketMetadata),
                 new Scenario("paxel-native-item-metadata", this::paxelNativeItemMetadata),
                 new Scenario("barrel-display-and-quantities", this::barrelDisplayLifecycle),
+                new Scenario("barrel-quick-withdraw-two-outputs", this::barrelQuickWithdrawTwoOutputs),
                 new Scenario("barrel-slimefun-cargo-metadata", this::barrelSlimefunCargoMetadata),
                 new Scenario("barrel-canonical-presentation-self-heal", this::barrelCanonicalPresentationSelfHeal),
                 new Scenario("barrel-historical-item-nonmerge", this::barrelHistoricalItemNonmerge),
@@ -931,6 +932,98 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                     Slimefun.getItemDataService().getItemData(restored.getItemMeta()).orElse(null)),
                     "Self-healed template keeps the same registered Slimefun identity");
 
+            return check;
+        });
+    }
+
+
+    /**
+     * Execute the production Quick Withdraw path on a real Paper barrel menu.
+     * The player and player inventory are minimal API test doubles because
+     * the disposable server has no connected human player.
+     * Two buffered outputs plus further empty slots previously read OUTPUT_SLOTS[2].
+     */
+    private CompletableFuture<Check> barrelQuickWithdrawTwoOutputs() {
+        return owner(() -> {
+            Check check = new Check();
+            fixtureNumber++;
+            Location loc = new Location(world, 1536 + fixtureNumber * 128, 64, 1536);
+            Chunk chunk = holdChunk(loc);
+            blocks.getChunkData(chunk);
+            SlimefunItem sfBarrel = SlimefunItem.getById("SMALL_FLUFFY_BARREL");
+            SlimefunItem sfMaterial = SlimefunItem.getById("REINFORCED_PLATE");
+            if (!(sfBarrel instanceof Barrel barrel) || sfMaterial == null)
+                throw new IllegalStateException("Production barrel or item unavailable for Quick Withdraw");
+
+            Block block = loc.getBlock();
+            block.setType(sfBarrel.getItem().getType(), false);
+            SlimefunBlockData data = blocks.createBlock(loc, sfBarrel.getId());
+            BlockMenu menu = data.getBlockMenu();
+            if (menu == null || !data.isDataLoaded())
+                throw new IllegalStateException("Native Quick Withdraw barrel menu unavailable");
+            barrel.setStored(block, 0);
+
+            ItemStack template = sfMaterial.getItem().clone();
+            template.setAmount(1);
+            ItemStack first = template.clone();
+            first.setAmount(64);
+            ItemStack second = template.clone();
+            second.setAmount(13);
+            menu.replaceExistingItem(31, Utils.keyItem(template));
+            menu.replaceExistingItem(24, first.clone());
+            menu.replaceExistingItem(25, second.clone());
+            check.that(barrel.visibleContents(block).safe()
+                    && barrel.visibleContents(block).amount() == 77L,
+                    "initial 64 + 13 buffered items are registered without saved reserve");
+
+            ItemStack[] held = new ItemStack[36];
+            org.bukkit.inventory.PlayerInventory playerInventory =
+                (org.bukkit.inventory.PlayerInventory) java.lang.reflect.Proxy.newProxyInstance(
+                    org.bukkit.inventory.PlayerInventory.class.getClassLoader(),
+                    new Class<?>[] {org.bukkit.inventory.PlayerInventory.class},
+                    (proxy, method, arguments) -> {
+                        return switch (method.getName()) {
+                            case "getStorageContents", "getContents" -> held.clone();
+                            case "getItem" -> held[(Integer) arguments[0]];
+                            case "setItem" -> {
+                                held[(Integer) arguments[0]] =
+                                    arguments[1] == null ? null : ((ItemStack) arguments[1]).clone();
+                                yield null;
+                            }
+                            default -> throw new UnsupportedOperationException(
+                                    "Unexpected test inventory method: " + method.getName());
+                        };
+                    });
+            org.bukkit.entity.Player testPlayer = (org.bukkit.entity.Player)
+                java.lang.reflect.Proxy.newProxyInstance(
+                    org.bukkit.entity.Player.class.getClassLoader(),
+                    new Class<?>[] {org.bukkit.entity.Player.class},
+                    (proxy, method, arguments) -> {
+                        if ("getInventory".equals(method.getName())) return playerInventory;
+                        throw new UnsupportedOperationException(
+                                "Unexpected test player method: " + method.getName());
+                    });
+
+            barrel.extract(testPlayer, menu, block,
+                    new me.mrCookieSlime.CSCoreLibPlugin.general.Inventory.ClickAction(false, false));
+
+            check.that(held[0] != null && held[0].getAmount() == 64
+                    && first.isSimilar(held[0]), "first output transfers intact");
+            check.that(held[1] != null && held[1].getAmount() == 13
+                    && second.isSimilar(held[1]), "second output transfers intact");
+            check.that(held[2] == null && held[3] == null && held[4] == null,
+                    "additional empty player slots do not access a nonexistent third barrel output");
+            check.that(menu.getItemInSlot(24) == null && menu.getItemInSlot(25) == null
+                    && barrel.getStored(block) == 0,
+                    "both physical outputs are emptied and saved reserve stays at zero");
+            check.that(barrel.visibleContents(block).safe()
+                    && barrel.visibleContents(block).amount() == 0L,
+                    "barrel content classifier reports a safe empty state");
+            long playerTotal = Arrays.stream(held).filter(java.util.Objects::nonNull)
+                    .mapToLong(ItemStack::getAmount).sum();
+            check.that(playerTotal == 77L, "all 77 items conserved across Quick Withdraw");
+            check.note("Real production Barrel.extract and BlockMenu on native Paper; "
+                    + "player inventory is a minimal API test double, not a connected-player interaction.");
             return check;
         });
     }
