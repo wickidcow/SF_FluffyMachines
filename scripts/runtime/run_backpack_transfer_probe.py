@@ -50,7 +50,7 @@ EXPECTED_CASES = NEGATIVE_CONTROLS | ORDINARY_CONTROLS | {
     "barrel-cargo-restart-write", "barrel-actual-cargo-network",
     "barrel-quick-withdraw-two-outputs"}
 EXPECTED_RESTART_CASES = {f"restart-{identity}-BACKPACK_{machine}"
-                          for identity in ("pdc", "legacy") for machine in ("LOADER", "UNLOADER")} | {"restart-barrel-cargo-contents", "restart-dolly-locked-chest-state",
+                          for identity in ("pdc", "legacy") for machine in ("LOADER", "UNLOADER")} | {"restart-barrel-cargo-contents", "restart-barrel-real-cargo-network", "restart-dolly-locked-chest-state",
                                                                        "restart-barrel-historical-item-nonmerge"}
 
 

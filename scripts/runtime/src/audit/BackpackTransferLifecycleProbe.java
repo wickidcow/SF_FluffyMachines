@@ -594,6 +594,15 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                     && PlainTextComponentSerializer.plainText()
                             .serialize(status.getItemMeta().displayName()).contains("95 /"),
                     "barrel GUI accurately reports actual Cargo network output and reserve");
+            check.that(barrel.getStored(destination) == 0
+                            && menu.getItemInSlot(24) != null && menu.getItemInSlot(24).getAmount() == 64
+                            && menu.getItemInSlot(25) != null && menu.getItemInSlot(25).getAmount() == 31,
+                    "real Cargo delivery leaves 95 buffered items and a legitimate zero saved reserve");
+            check.that(menu.getItemInSlot(19) == null && menu.getItemInSlot(20) == null,
+                    "production barrel ticker absorbs both incoming Cargo deliveries");
+            writeJson(getDataFolder().toPath().resolve("barrel-real-cargo-restart-fixture.json"),
+                    Map.of("x", base.getBlockX(), "y", base.getBlockY(), "z", base.getBlockZ(),
+                            "id", barrelItem.getId(), "item", materialItem.getId(), "total", 95));
             return check;
         });
     }
@@ -1693,6 +1702,82 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                                     && barrel.visibleContents(block).amount() == 137L,
                                     "first post-restart machine tick conserves all items");
                             results.add(check.result("restart-barrel-cargo-contents"));
+                            return (Void) null;
+                        }));
+            });
+        }).thenCompose(v -> {
+            // This is stock routed by the real CargoNetworkTask, not the separate
+            // direct BlockMenu insertion fixture. The persisted reserve is zero
+            // because all 95 items were placed into the two physical outputs.
+            final Map<String, Object> fixture;
+            try {
+                Type mapType = new TypeToken<Map<String, Object>>() {}.getType();
+                fixture = JSON.fromJson(Files.readString(getDataFolder().toPath()
+                        .resolve("barrel-real-cargo-restart-fixture.json")), mapType);
+            } catch (IOException failure) {
+                return CompletableFuture.failedFuture(failure);
+            }
+            if (fixture == null) return CompletableFuture.failedFuture(
+                    new IllegalStateException("Missing actual Cargo network restart fixture"));
+            return ownerCompose(() -> {
+                Location location = new Location(world, ((Number) fixture.get("x")).intValue(),
+                        ((Number) fixture.get("y")).intValue(), ((Number) fixture.get("z")).intValue());
+                holdChunk(location);
+                SlimefunBlockData data = blocks.getBlockData(location);
+                if (data == null) throw new IllegalStateException(
+                        "Actual Cargo network barrel data missing after Paper restart");
+                if (!data.isDataLoaded()) blocks.loadBlockData(data);
+                return waitUntil(() -> data.isDataLoaded() && data.getBlockMenu() != null, 100)
+                        .thenCompose(v2 -> owner(() -> {
+                            BlockMenu menu = data.getBlockMenu();
+                            SlimefunItem sf = SlimefunItem.getById((String) fixture.get("id"));
+                            if (!(sf instanceof Barrel barrel) || menu == null)
+                                throw new IllegalStateException("Missing network-routed barrel after restart");
+                            Block block = location.getBlock();
+                            Check check = new Check();
+                            check.that(fixture.get("id").equals(data.getSfId()),
+                                    "network-routed barrel registration survives separate Paper process");
+                            // A restart cannot resurrect the source chest's exported
+                            // 95 items while retaining the barrel outputs: check both
+                            // sides of the real Cargo transfer ledger.
+                            Block source = location.clone().add(2, 0, 0).getBlock();
+                            if (!(source.getState() instanceof org.bukkit.block.Chest chest))
+                                throw new IllegalStateException("Cargo source chest missing after restart");
+                            int sourceStock = Arrays.stream(chest.getBlockInventory().getStorageContents())
+                                    .filter(java.util.Objects::nonNull)
+                                    .mapToInt(ItemStack::getAmount).sum();
+                            check.that(sourceStock == 0,
+                                    "original Cargo source chest stays empty after restart (no source-side duplication)");
+                            check.that(barrel.getStored(block) == 0,
+                                    "zero saved reserve remains zero without losing buffered Cargo stock");
+                            check.that(menu.getItemInSlot(19) == null && menu.getItemInSlot(20) == null,
+                                    "Cargo-facing input buffers remain empty after network delivery/restart");
+                            ItemStack outputA = menu.getItemInSlot(24), outputB = menu.getItemInSlot(25);
+                            check.that(outputA != null && outputA.getAmount() == 64
+                                            && outputB != null && outputB.getAmount() == 31,
+                                    "real Cargo network outputs 64 + 31 survive Paper restart exactly");
+                            String firstId = outputA == null ? null
+                                    : Slimefun.getItemDataService().getItemData(outputA).orElse(null);
+                            String secondId = outputB == null ? null
+                                    : Slimefun.getItemDataService().getItemData(outputB).orElse(null);
+                            check.that(fixture.get("item").equals(firstId)
+                                            && fixture.get("item").equals(secondId),
+                                    "real Cargo network Slimefun item identities survive restart");
+                            check.that(barrel.visibleContents(block).safe()
+                                            && barrel.visibleContents(block).amount()
+                                            == ((Number) fixture.get("total")).longValue(),
+                                    "zero saved reserve plus two physical outputs conserves all 95 items");
+                            sf.getBlockTicker().tick(block, sf, data);
+                            check.that(barrel.getStored(block) == 0
+                                            && barrel.visibleContents(block).safe()
+                                            && barrel.visibleContents(block).amount() == 95L,
+                                    "first post-restart barrel ticker neither loses nor duplicates Cargo items");
+                            ItemStack status = menu.getItemInSlot(22);
+                            check.that(status != null && status.hasItemMeta()
+                                            && PlainTextComponentSerializer.plainText()
+                                            .serialize(status.getItemMeta().displayName()).contains("95 /"),
+                                    "post-restart GUI counts both physical outputs despite zero saved reserve");
+                            results.add(check.result("restart-barrel-real-cargo-network"));
                             return (Void) null;
                         }));
             });
