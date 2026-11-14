@@ -9,7 +9,6 @@ import io.github.thebusybiscuit.slimefun4.api.items.ItemGroup;
 import io.github.thebusybiscuit.slimefun4.api.items.SlimefunItemStack;
 import io.github.thebusybiscuit.slimefun4.libraries.dough.protection.Interaction;
 import io.ncbpfluffybear.fluffymachines.FluffyMachines;
-import io.ncbpfluffybear.fluffymachines.utils.Constants;
 import io.ncbpfluffybear.fluffymachines.utils.Utils;
 import io.github.thebusybiscuit.slimefun4.api.items.ItemSetting;
 import io.github.thebusybiscuit.slimefun4.core.handlers.ItemUseHandler;
@@ -175,20 +174,9 @@ public class WateringCan extends SimpleSlimefunItem<ItemUseHandler> implements C
                             }
 
                         } else {
-
-                            if (Constants.SERVER_VERSION < 1163) {
-                                if (random < treeSuccessChance.getValue()) {
-
-                                    b.setType(Material.AIR);
-                                    if (!blockLocation.getWorld().generateTree(blockLocation,
-                                        getTreeFromSapling(saplingMaterial))) {
-                                        b.setType(saplingMaterial);
-                                    }
-                                    spawnGrowthParticles(blockLocation);
-                                }
-                            } else {
-                                b.applyBoneMeal(p.getFacing());
-                            }
+                            // Minecraft 1.21.11+ uses bonemeal. Comparing the legacy numeric version
+                            // with 1163 wrongly selects pre-1.16.3 growth on 26.2 and 26.3.
+                            SaplingGrowth.applyModernBoneMeal(b, p.getFacing());
                         }
                     }
                 }
