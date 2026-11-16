@@ -821,6 +821,11 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                 throw new IllegalStateException("Native barrel has no loaded BlockMenu");
             }
             barrel.setStored(block, 0);
+            // In the disposable data controller, createBlock does not open the
+            // menu or call the preset's newInstance. A real opened barrel always
+            // has a display placeholder; without it updateMenu intentionally
+            // returns before writing any status pane.
+            menu.replaceExistingItem(31, new ItemStack(Material.BARRIER));
             ItemStack first = firstItem.getItem().clone();
             ItemStack second = secondItem.getItem().clone();
             first.setAmount(37);
