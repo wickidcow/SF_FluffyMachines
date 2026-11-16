@@ -7,7 +7,7 @@ from pathlib import Path
 
 from scripts.immutable_release_guard import MAIN_CLASS, validate_jar, validate_request
 
-VERSION = '26.2.19'
+VERSION = '26.2.20'
 HEAD = 'a' * 40
 DESCRIPTOR = f'''name: FluffyMachines
 version: {VERSION}
@@ -33,7 +33,7 @@ class ReleaseRequestTest(unittest.TestCase):
                 self.request(event=event)
 
     def test_tag_and_feature_branch_dispatches_cannot_publish(self):
-        for ref in ('refs/tags/v26.2.19', 'refs/heads/fix/test', 'refs/pull/1/merge', ''):
+        for ref in ('refs/tags/v26.2.20', 'refs/heads/fix/test', 'refs/pull/1/merge', ''):
             with self.subTest(ref=ref), self.assertRaises(ValueError):
                 self.request(ref=ref)
 
@@ -43,7 +43,7 @@ class ReleaseRequestTest(unittest.TestCase):
                 self.request(enabled=enabled)
 
     def test_version_mismatch_or_non_numeric_input_is_rejected(self):
-        for version in ('26.2.15', 'v26.2.19', '26.2.19-SNAPSHOT', '', '26.2.19\n', '../x'):
+        for version in ('26.2.15', 'v26.2.20', '26.2.20-SNAPSHOT', '', '26.2.20\n', '../x'):
             with self.subTest(version=version), self.assertRaises(ValueError):
                 self.request(requested=version)
 
@@ -241,7 +241,7 @@ class PublisherShellTest(unittest.TestCase):
 
     def test_push_and_feature_branch_requests_cannot_mutate(self):
         for overrides in ({'GITHUB_EVENT_NAME': 'push'}, {'RELEASE_ENABLED': 'false'},
-                          {'GITHUB_REF': 'refs/heads/topic'}, {'GITHUB_REF': 'refs/tags/v26.2.19'}):
+                          {'GITHUB_REF': 'refs/heads/topic'}, {'GITHUB_REF': 'refs/tags/v26.2.20'}):
             with self.subTest(overrides=overrides):
                 self.assert_no_mutation(*self.exercise(**overrides))
 
