@@ -162,7 +162,7 @@ public class WateringCan extends SimpleSlimefunItem<ItemUseHandler> implements C
                         }
                         // Unsupported/future saplings must never consume water and
                         // then fail with IllegalArgumentException from TreeType.
-                        TreeType exoticTree = exoticPlant ? getTreeFromSapling(b.getType()) : null;
+                        TreeType exoticTree = exoticPlant ? SaplingGrowth.getTreeFromSapling(b.getType()) : null;
                         if (exoticPlant && exoticTree == null) {
                             Utils.send(p, "&cThis exotic sapling cannot be watered safely.");
                             return;
@@ -266,24 +266,6 @@ public class WateringCan extends SimpleSlimefunItem<ItemUseHandler> implements C
         return true;
     }
 
-    /** Bukkit TreeType names are not always the same as sapling Material names. */
-    static TreeType getTreeFromSapling(Material m) {
-        if (m == null) return null;
-        String type = m.name();
-        if (type.equals("OAK_SAPLING")) return TreeType.TREE;
-        if (type.equals("SPRUCE_SAPLING")) return TreeType.REDWOOD;
-        if (type.equals("JUNGLE_SAPLING")) return TreeType.SMALL_JUNGLE;
-        if (type.equals("MANGROVE_PROPAGULE")) return TreeType.MANGROVE;
-        if (type.equals("FLOWERING_AZALEA")) return TreeType.AZALEA;
-        try {
-            // Future saplings whose enum has no matching TreeType are refused
-            // before spending water; their metadata and block are untouched.
-            if (!type.endsWith("_SAPLING")) return null;
-            return TreeType.valueOf(type.substring(0, type.length() - "_SAPLING".length()));
-        } catch (IllegalArgumentException unknownTree) {
-            return null;
-        }
-    }
 
     public ItemSetting<Integer> getUses() {
         return this.maxUses;
