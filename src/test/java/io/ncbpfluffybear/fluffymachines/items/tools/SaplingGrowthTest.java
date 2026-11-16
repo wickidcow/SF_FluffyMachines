@@ -58,21 +58,21 @@ class SaplingGrowthTest {
 
     @Test
     void exoticTreeMappingsUseRealBukkitTreeTypeNames() {
-        assertEquals(TreeType.TREE, WateringCan.getTreeFromSapling(Material.OAK_SAPLING));
-        assertEquals(TreeType.REDWOOD, WateringCan.getTreeFromSapling(Material.SPRUCE_SAPLING));
-        assertEquals(TreeType.SMALL_JUNGLE, WateringCan.getTreeFromSapling(Material.JUNGLE_SAPLING));
-        assertEquals(TreeType.BIRCH, WateringCan.getTreeFromSapling(Material.BIRCH_SAPLING));
-        assertEquals(TreeType.CHERRY, WateringCan.getTreeFromSapling(Material.CHERRY_SAPLING));
-        assertEquals(TreeType.PALE_OAK, WateringCan.getTreeFromSapling(Material.PALE_OAK_SAPLING));
-        assertEquals(TreeType.MANGROVE, WateringCan.getTreeFromSapling(Material.MANGROVE_PROPAGULE));
-        assertEquals(TreeType.AZALEA, WateringCan.getTreeFromSapling(Material.FLOWERING_AZALEA));
+        assertEquals(TreeType.TREE, SaplingGrowth.getTreeFromSapling(Material.OAK_SAPLING));
+        assertEquals(TreeType.REDWOOD, SaplingGrowth.getTreeFromSapling(Material.SPRUCE_SAPLING));
+        assertEquals(TreeType.SMALL_JUNGLE, SaplingGrowth.getTreeFromSapling(Material.JUNGLE_SAPLING));
+        assertEquals(TreeType.BIRCH, SaplingGrowth.getTreeFromSapling(Material.BIRCH_SAPLING));
+        assertEquals(TreeType.CHERRY, SaplingGrowth.getTreeFromSapling(Material.CHERRY_SAPLING));
+        assertEquals(TreeType.PALE_OAK, SaplingGrowth.getTreeFromSapling(Material.PALE_OAK_SAPLING));
+        assertEquals(TreeType.MANGROVE, SaplingGrowth.getTreeFromSapling(Material.MANGROVE_PROPAGULE));
+        assertEquals(TreeType.AZALEA, SaplingGrowth.getTreeFromSapling(Material.FLOWERING_AZALEA));
     }
 
     @Test
     void unsupportedMaterialIsRejectedInsteadOfThrowing() {
-        assertNull(WateringCan.getTreeFromSapling(Material.STONE));
-        assertNull(WateringCan.getTreeFromSapling(Material.AIR));
-        assertNull(WateringCan.getTreeFromSapling(null));
+        assertNull(SaplingGrowth.getTreeFromSapling(Material.STONE));
+        assertNull(SaplingGrowth.getTreeFromSapling(Material.AIR));
+        assertNull(SaplingGrowth.getTreeFromSapling(null));
     }
 
     private static Block fakeBlock(boolean returnValue, AtomicInteger calls,
