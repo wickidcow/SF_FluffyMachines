@@ -9,7 +9,6 @@ import io.github.thebusybiscuit.slimefun4.api.items.ItemGroup;
 import io.github.thebusybiscuit.slimefun4.api.items.SlimefunItemStack;
 import io.github.thebusybiscuit.slimefun4.libraries.dough.protection.Interaction;
 import io.ncbpfluffybear.fluffymachines.FluffyMachines;
-import io.ncbpfluffybear.fluffymachines.utils.Constants;
 import io.ncbpfluffybear.fluffymachines.utils.Utils;
 import io.github.thebusybiscuit.slimefun4.api.items.ItemSetting;
 import io.github.thebusybiscuit.slimefun4.core.handlers.ItemUseHandler;
@@ -153,42 +152,40 @@ public class WateringCan extends SimpleSlimefunItem<ItemUseHandler> implements C
                         // Trees
                     } else if (Tag.SAPLINGS.isTagged(b.getType())) {
 
+                        // Check the exotic-plant policy BEFORE charging the watering can.
+                        // Previously disabled plants still consumed water, then returned.
+                        boolean exoticPlant = StorageCacheUtils.hasBlock(b.getLocation());
+                        double exoticChance = exoticGardenSuccessChance.getValue();
+                        if (!SaplingGrowth.canConsumeWater(exoticPlant, exoticChance)) {
+                            Utils.send(p, "&cYou cannot water Exotic Garden plants!");
+                            return;
+                        }
+                        // Unsupported/future saplings must never consume water and
+                        // then fail with IllegalArgumentException from TreeType.
+                        TreeType exoticTree = exoticPlant ? SaplingGrowth.getTreeFromSapling(b.getType()) : null;
+                        if (exoticPlant && exoticTree == null) {
+                            Utils.send(p, "&cThis exotic sapling cannot be watered safely.");
+                            return;
+                        }
                         if (!updateUses(this, p, item, 1)) {
                             return;
                         }
 
                         blockLocation.getWorld().spawnParticle(Particle.SPLASH, blockLocation, 0);
                         double random = ThreadLocalRandom.current().nextDouble();
-                        Material saplingMaterial = b.getType();
-
-                        if (StorageCacheUtils.hasBlock(b.getLocation())) {
-                            if (exoticGardenSuccessChance.getValue() == 0) {
-                                Utils.send(p, "&cYou cannot water Exotic Garden plants!");
-                                return;
-                            }
-                            if (random < exoticGardenSuccessChance.getValue()) {
+                        if (exoticPlant) {
+                            if (random < exoticChance) {
                                 Bukkit.getPluginManager().callEvent(new StructureGrowEvent(
-                                    b.getLocation(), getTreeFromSapling(saplingMaterial), false, p, Collections.singletonList(b.getState())
+                                    b.getLocation(), exoticTree, false, p, Collections.singletonList(b.getState())
                                 ));
                                 spawnGrowthParticles(blockLocation);
 
                             }
 
                         } else {
-
-                            if (Constants.SERVER_VERSION < 1163) {
-                                if (random < treeSuccessChance.getValue()) {
-
-                                    b.setType(Material.AIR);
-                                    if (!blockLocation.getWorld().generateTree(blockLocation,
-                                        getTreeFromSapling(saplingMaterial))) {
-                                        b.setType(saplingMaterial);
-                                    }
-                                    spawnGrowthParticles(blockLocation);
-                                }
-                            } else {
-                                b.applyBoneMeal(p.getFacing());
-                            }
+                            // Minecraft 1.21.11+ uses bonemeal. Comparing the legacy numeric version
+                            // with 1163 wrongly selects pre-1.16.3 growth on 26.2 and 26.3.
+                            SaplingGrowth.applyModernBoneMeal(b, p.getFacing());
                         }
                     }
                 }
@@ -228,7 +225,9 @@ public class WateringCan extends SimpleSlimefunItem<ItemUseHandler> implements C
 
         if (updateType == 1) {
 
-            if (usesLeft == 0) {
+            // A legacy/corrupt negative charge must never become usable water.
+            // Do not rewrite it: a source-water refill can safely restore it.
+            if (usesLeft <= 0) {
                 Utils.send(p, "&cYou need to fill your Watering Can!");
                 return false;
             }
@@ -241,7 +240,9 @@ public class WateringCan extends SimpleSlimefunItem<ItemUseHandler> implements C
             usesLeft = can.getUses().getValue();
 
         } else if (updateType == 3) {
-            if (usesLeft == 0) {
+            // A legacy/corrupt negative charge must never become usable water.
+            // Do not rewrite it: a source-water refill can safely restore it.
+            if (usesLeft <= 0) {
                 Utils.send(p, "&cYou need to fill your Watering Can!");
                 return false;
             }
@@ -265,19 +266,6 @@ public class WateringCan extends SimpleSlimefunItem<ItemUseHandler> implements C
         return true;
     }
 
-    private static TreeType getTreeFromSapling(Material m) {
-        TreeType treeType = TreeType.TREE;
-        String parseSapling = m.toString()
-            .replace("_SAPLING", "");
-
-        if (!parseSapling.equals("OAK")) {
-            if (parseSapling.equals("JUNGLE")) {
-                parseSapling = "SMALL_JUNGLE";
-            }
-            return TreeType.valueOf(parseSapling);
-        }
-        return treeType;
-    }
 
     public ItemSetting<Integer> getUses() {
         return this.maxUses;
