@@ -125,6 +125,7 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                 new Scenario("paxel-native-item-metadata", this::paxelNativeItemMetadata),
                 new Scenario("barrel-display-and-quantities", this::barrelDisplayLifecycle),
                 new Scenario("barrel-quick-withdraw-two-outputs", this::barrelQuickWithdrawTwoOutputs),
+                new Scenario("barrel-native-unsafe-state-reason", this::barrelNativeUnsafeStateReason),
                 new Scenario("watering-can-native-charge-parity", this::wateringCanNativeChargeParity),
                 new Scenario("watering-can-real-paper-sapling", this::wateringCanRealPaperSapling),
                 new Scenario("barrel-slimefun-cargo-metadata", this::barrelSlimefunCargoMetadata),
@@ -796,6 +797,71 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
      * the changed decoration is not permission to rewrite historical items.
      * This covers the real barrel ticker and physical Cargo-facing slots.
      */
+    /**
+     * Native Paper BlockMenu diagnostic regression. Two different registered
+     * items occupy the physical outputs, while saved reserve remains zero and
+     * display is empty. Refresh only the status; never infer a new item, move
+     * physical output, or rewrite the saved reserve.
+     */
+    private CompletableFuture<Check> barrelNativeUnsafeStateReason() {
+        return owner(() -> {
+            Check check = new Check();
+            SlimefunItem barrelItem = SlimefunItem.getById("SMALL_FLUFFY_BARREL");
+            SlimefunItem firstItem = SlimefunItem.getById("REINFORCED_PLATE");
+            SlimefunItem secondItem = SlimefunItem.getById("CARBON");
+            if (!(barrelItem instanceof Barrel barrel) || firstItem == null || secondItem == null) {
+                throw new IllegalStateException("Missing registered native barrel diagnostic fixtures");
+            }
+            fixtureNumber++;
+            Location location = new Location(world, 2048 + fixtureNumber * 128, 64, 1816);
+            holdChunk(location);
+            blocks.getChunkData(location.getChunk());
+            Block block = location.getBlock();
+            block.setType(barrelItem.getItem().getType(), false);
+            SlimefunBlockData data = blocks.createBlock(location, barrelItem.getId());
+            BlockMenu menu = data.getBlockMenu();
+            if (menu == null || !data.isDataLoaded()) {
+                throw new IllegalStateException("Native barrel has no loaded BlockMenu");
+            }
+            barrel.setStored(block, 0);
+            // In the disposable data controller, createBlock does not open the
+            // menu or call the preset's newInstance. A real opened barrel always
+            // has a display placeholder; without it updateMenu intentionally
+            // returns before writing any status pane.
+            menu.replaceExistingItem(31, new ItemStack(Material.BARRIER));
+            ItemStack first = firstItem.getItem().clone();
+            ItemStack second = secondItem.getItem().clone();
+            first.setAmount(37);
+            second.setAmount(12);
+            check.that(!first.isSimilar(second), "Two registered real Paper items have distinct identities");
+            menu.replaceExistingItem(24, first.clone());
+            menu.replaceExistingItem(25, second.clone());
+            check.that(!barrel.visibleContents(block).safe()
+                    && barrel.visibleContents(block).rejection()
+                        == io.ncbpfluffybear.fluffymachines.items.BarrelContents.Rejection.OUTPUT_IDENTITY_MISMATCH,
+                    "Native physical output mismatch has the exact read-only rejection classification");
+            ItemStack beforeFirst = nativeCopy(menu.getItemInSlot(24));
+            ItemStack beforeSecond = nativeCopy(menu.getItemInSlot(25));
+            barrel.updateMenu(block, menu, false, barrel.getCapacity(block));
+            ItemStack status = menu.getItemInSlot(22);
+            List<Component> lore = status == null || !status.hasItemMeta()
+                    ? null : status.getItemMeta().lore();
+            check.that(status != null && status.getType() == Material.RED_STAINED_GLASS_PANE
+                    && lore != null && lore.stream().anyMatch(line ->
+                        PlainTextComponentSerializer.plainText().serialize(line)
+                                .contains("Output item identity/metadata mismatch")),
+                    "Actual red status pane explains why two unsafe real output stacks cannot merge");
+            barrelItem.getBlockTicker().tick(block, barrelItem, data);
+            check.that(barrel.getStored(block) == 0
+                    && beforeFirst.equals(menu.getItemInSlot(24))
+                    && beforeSecond.equals(menu.getItemInSlot(25)),
+                    "Reading/rejecting the unsafe state never creates a saved reserve or touches output items");
+            check.note("Real Paper registered BlockMenu and error status; synthetic mismatched "
+                    + "registered items only. Does not establish identity of historical AlbionMC stock.");
+            return check;
+        });
+    }
+
     private CompletableFuture<Check> barrelHistoricalItemNonmerge() {
         return owner(() -> {
             Check check = new Check();

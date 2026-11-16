@@ -49,7 +49,7 @@ EXPECTED_CASES = NEGATIVE_CONTROLS | ORDINARY_CONTROLS | {
     "barrel-canonical-presentation-self-heal", "barrel-historical-item-nonmerge",
     "barrel-cargo-restart-write", "barrel-actual-cargo-network",
     "barrel-quick-withdraw-two-outputs", "watering-can-native-charge-parity",
-    "watering-can-real-paper-sapling"}
+    "watering-can-real-paper-sapling", "barrel-native-unsafe-state-reason"}
 EXPECTED_RESTART_CASES = {f"restart-{identity}-BACKPACK_{machine}"
                           for identity in ("pdc", "legacy") for machine in ("LOADER", "UNLOADER")} | {"restart-barrel-cargo-contents", "restart-barrel-real-cargo-network", "restart-dolly-locked-chest-state",
                                                                        "restart-barrel-historical-item-nonmerge",
