@@ -126,6 +126,7 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                 new Scenario("barrel-display-and-quantities", this::barrelDisplayLifecycle),
                 new Scenario("barrel-quick-withdraw-two-outputs", this::barrelQuickWithdrawTwoOutputs),
                 new Scenario("watering-can-native-charge-parity", this::wateringCanNativeChargeParity),
+                new Scenario("watering-can-real-paper-sapling", this::wateringCanRealPaperSapling),
                 new Scenario("barrel-slimefun-cargo-metadata", this::barrelSlimefunCargoMetadata),
                 new Scenario("barrel-canonical-presentation-self-heal", this::barrelCanonicalPresentationSelfHeal),
                 new Scenario("barrel-historical-item-nonmerge", this::barrelHistoricalItemNonmerge),
@@ -1019,6 +1020,49 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                     "refill and use preserve item quantity and unrelated owner PDC");
             check.note("Real registered production WateringCan and Paper ItemMeta/PDC; "
                     + "player API double only, no claim of protected live sapling behavior.");
+            return check;
+        });
+    }
+
+    /**
+     * Use the real production bonemeal helper on a real Paper OAK_SAPLING,
+     * not a proxy block; the tree outcome is random and deliberately not
+     * assumed. Permission checks in the player handler still need owner-world
+     * protected-region acceptance and are not simulated here.
+     */
+    private CompletableFuture<Check> wateringCanRealPaperSapling() {
+        return owner(() -> {
+            Check check = new Check();
+            if (!(SlimefunItem.getById("WATERING_CAN") instanceof WateringCan)) {
+                throw new IllegalStateException("Production WATERING_CAN is not registered");
+            }
+            fixtureNumber++;
+            Location loc = new Location(world, 1536 + fixtureNumber * 128, 64, 1536);
+            holdChunk(loc);
+            Block soil = loc.clone().subtract(0, 1, 0).getBlock();
+            soil.setType(Material.GRASS_BLOCK, false);
+            Block sapling = loc.getBlock();
+            sapling.setType(Material.OAK_SAPLING, false);
+            check.that(sapling.getType() == Material.OAK_SAPLING,
+                    "native disposable Paper world contains a real planted oak sapling");
+
+            try {
+                Class<?> helper = Class.forName(
+                        "io.ncbpfluffybear.fluffymachines.items.tools.SaplingGrowth");
+                Method apply = helper.getDeclaredMethod(
+                        "applyModernBoneMeal", Block.class, BlockFace.class);
+                apply.setAccessible(true);
+                apply.invoke(null, sapling, BlockFace.UP);
+            } catch (ReflectiveOperationException failure) {
+                throw new IllegalStateException(
+                        "Production Watering Can bonemeal helper failed on real Paper block", failure);
+            }
+            check.that(sapling.getType() == Material.OAK_SAPLING
+                            || sapling.getType() == Material.OAK_LOG,
+                    "single native bonemeal attempt never leaves a missing sapling/tree base");
+            check.note("Actual production SaplingGrowth.applyModernBoneMeal on Paper OAK_SAPLING. "
+                    + "This checks non-destructive native execution, not guaranteed random growth, "
+                    + "connected-player protection, or ExoticGarden hooks.");
             return check;
         });
     }
