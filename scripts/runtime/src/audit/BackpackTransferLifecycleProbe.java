@@ -1031,6 +1031,30 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
             long playerTotal = Arrays.stream(held).filter(java.util.Objects::nonNull)
                     .mapToLong(ItemStack::getAmount).sum();
             check.that(playerTotal == 77L, "all 77 items conserved across Quick Withdraw");
+
+            // A Cargo withdrawal may leave output 24 empty while output 25
+            // remains occupied. The previous extraction loop repeatedly checked
+            // 24 and skipped every free player slot, stranding output 25.
+            Arrays.fill(held, null);
+            menu.replaceExistingItem(24, null);
+            menu.replaceExistingItem(25, second.clone());
+            check.that(barrel.visibleContents(block).safe()
+                    && barrel.visibleContents(block).amount() == 13L,
+                    "only the second output remains, with exactly 13 physical items");
+            barrel.extract(testPlayer, menu, block,
+                    new me.mrCookieSlime.CSCoreLibPlugin.general.Inventory.ClickAction(false, false));
+            check.that(held[0] != null && held[0].getAmount() == 13
+                    && second.isSimilar(held[0]),
+                    "Quick Withdraw reaches the occupied second output when the first is empty");
+            check.that(held[1] == null && held[2] == null && held[3] == null,
+                    "an empty first barrel output causes no phantom player transfers");
+            check.that(menu.getItemInSlot(24) == null && menu.getItemInSlot(25) == null
+                    && barrel.getStored(block) == 0 && barrel.visibleContents(block).safe()
+                    && barrel.visibleContents(block).amount() == 0L,
+                    "second-only Quick Withdraw empties the physical buffer without altering reserve");
+            check.that(Arrays.stream(held).filter(java.util.Objects::nonNull)
+                    .mapToLong(ItemStack::getAmount).sum() == 13L,
+                    "all 13 second-only buffered items are conserved");
             check.note("Real production Barrel.extract and BlockMenu on native Paper; "
                     + "player inventory is a minimal API test double, not a connected-player interaction.");
             return check;

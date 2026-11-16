@@ -785,14 +785,17 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
                     inv.setItem(i, new CustomItemStack(storedItem, stored));
                     stored = 0;
                 } else {
+                    // Cargo can remove the first output while the second still holds
+                    // matching items. Skip empty *barrel* slots without skipping every
+                    // remaining free player slot or indexing beyond the two outputs.
+                    while (outI < OUTPUT_SLOTS.length
+                            && !isRealItem(menu.getItemInSlot(OUTPUT_SLOTS[outI]))) {
+                        outI++;
+                    }
                     if (outI >= OUTPUT_SLOTS.length) {
                         break;
                     }
                     ItemStack item = menu.getItemInSlot(OUTPUT_SLOTS[outI]);
-
-                    if (item == null) {
-                        continue;
-                    }
 
                     inv.setItem(i, item.clone());
                     menu.replaceExistingItem(OUTPUT_SLOTS[outI], null);
