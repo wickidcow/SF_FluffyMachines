@@ -1,6 +1,8 @@
 package io.ncbpfluffybear.fluffymachines.items.tools;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
 import java.lang.reflect.Proxy;
@@ -35,6 +37,20 @@ class SaplingGrowthTest {
 
         assertEquals(1, calls.get());
         assertSame(BlockFace.UP, face.get());
+    }
+
+    @Test
+    void disabledExoticSaplingsCannotSpendAnyWater() {
+        assertFalse(SaplingGrowth.canConsumeWater(true, 0.0D));
+        assertFalse(SaplingGrowth.canConsumeWater(true, -1.0D));
+        assertFalse(SaplingGrowth.canConsumeWater(true, Double.NaN));
+        assertTrue(SaplingGrowth.canConsumeWater(true, 0.3D));
+        assertTrue(SaplingGrowth.canConsumeWater(true, 1.0D));
+    }
+
+    @Test
+    void ordinarySaplingsRetainBonemealPathEvenWithExoticDisabled() {
+        assertTrue(SaplingGrowth.canConsumeWater(false, 0.0D));
     }
 
     private static Block fakeBlock(boolean returnValue, AtomicInteger calls,
