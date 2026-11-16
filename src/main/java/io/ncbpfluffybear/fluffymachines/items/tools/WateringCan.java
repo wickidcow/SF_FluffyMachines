@@ -173,8 +173,6 @@ public class WateringCan extends SimpleSlimefunItem<ItemUseHandler> implements C
 
                         blockLocation.getWorld().spawnParticle(Particle.SPLASH, blockLocation, 0);
                         double random = ThreadLocalRandom.current().nextDouble();
-                        Material saplingMaterial = b.getType();
-
                         if (exoticPlant) {
                             if (random < exoticChance) {
                                 Bukkit.getPluginManager().callEvent(new StructureGrowEvent(
