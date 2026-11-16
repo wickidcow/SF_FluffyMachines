@@ -1018,6 +1018,23 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                     && "owner-private-marker".equals(held.getItemMeta()
                             .getPersistentDataContainer().get(marker, PersistentDataType.STRING)),
                     "refill and use preserve item quantity and unrelated owner PDC");
+            ItemStack corruptedCharge = held.clone();
+            corruptedCharge.editMeta(meta -> meta.getPersistentDataContainer()
+                    .set(uses, PersistentDataType.INTEGER, -1));
+            ItemStack unchangedCorruption = corruptedCharge.clone();
+            check.that(!WateringCan.updateUses(can, controlledPlayer, corruptedCharge, 1)
+                    && corruptedCharge.equals(unchangedCorruption),
+                    "negative typed PDC charge cannot be consumed or silently rewritten");
+            check.that(!WateringCan.updateUses(can, controlledPlayer, corruptedCharge, 3)
+                    && corruptedCharge.equals(unchangedCorruption),
+                    "negative typed PDC charge cannot trigger discharge or silent repair");
+            check.that(WateringCan.updateUses(can, controlledPlayer, corruptedCharge, 2)
+                    && maximum == corruptedCharge.getItemMeta().getPersistentDataContainer()
+                            .get(uses, PersistentDataType.INTEGER)
+                    && corruptedCharge.getAmount() == 1
+                    && "owner-private-marker".equals(corruptedCharge.getItemMeta()
+                            .getPersistentDataContainer().get(marker, PersistentDataType.STRING)),
+                    "explicit refill restores invalid charge without losing owner metadata or quantity");
             writeJson(getDataFolder().toPath().resolve("watering-can-charge-restart-fixture.json"),
                     Map.of("serialized_item", Base64.getEncoder().encodeToString(held.serializeAsBytes()),
                             "expected_uses", maximum - 1));
