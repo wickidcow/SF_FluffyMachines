@@ -33,5 +33,27 @@ class BarrelContentsTest {
     @Test void classifierDoesNotMutateInputOrConsumeDisplayAmount() { var d=item("a",999);var a=item("a",37);assertEquals(47,inspect(10,d,a,null).amount());assertEquals(999,d.amount());assertEquals(37,a.amount()); }
     @Test void quantitiesDoNotAffectIdentityMatching() { assertTrue(inspect(1,item("a",1),item("a",64),item("a",5)).safe()); }
     @Test void generatedMatchingLayoutsConserveAllThreeStorageLocations() { Random r=new Random(47121);for(int i=0;i<5000;i++){int n=r.nextInt(Integer.MAX_VALUE),a=r.nextInt(65),b=r.nextInt(65);var v=inspect(n,item("exact-owner",1),a==0?null:item("exact-owner",a),b==0?null:item("exact-owner",b));assertTrue(v.safe());assertEquals((long)n+a+b,v.amount());} }
+    @Test void readOnlyDiagnosticsDistinguishFailedStorageWithoutInventingCounts() {
+        assertEquals(BarrelContents.Rejection.INVALID_SAVED_COUNT,
+                inspect(-1, item("stored", 1), null, null).rejection());
+        assertEquals(BarrelContents.Rejection.MISSING_REGISTERED_ITEM,
+                inspect(34560000, null, item("stored", 8), null).rejection());
+        assertEquals(BarrelContents.Rejection.NONPOSITIVE_OUTPUT_AMOUNT,
+                inspect(0, null, item("stored", 0), null).rejection());
+        assertEquals(BarrelContents.Rejection.OUTPUT_IDENTITY_MISMATCH,
+                inspect(0, null, item("old-owner-pdc", 8), item("new-owner-pdc", 8)).rejection());
+        assertEquals(BarrelContents.Rejection.TOTAL_OVERFLOW,
+                inspect(Long.MAX_VALUE, item("stored", 1), item("stored", 1), null).rejection());
+        assertEquals(BarrelContents.Rejection.NONE, inspect(0, null, null, null).rejection());
+        assertEquals(BarrelContents.Rejection.NONE,
+                inspect(7, item("stored", 1), item("stored", 64), item("stored", 13)).rejection());
+
+        var refused = inspect(99, null, item("mismatch", 64), null);
+        assertFalse(refused.safe());
+        assertNull(refused.item(), "Unsafe inputs must not create an item identity");
+        assertEquals(0L, refused.amount(), "Unsafe inputs must never invent a saved quantity");
+        assertEquals("Saved reserve has no registered item", refused.rejection().explanation());
+    }
+
     @Test void frameListenerNeverReceivesAlreadyCancelledEvents() throws Exception { var m=BarrelItemFrameListener.class.getMethod("onBarrelItemFrameClick",PlayerInteractEntityEvent.class);assertTrue(m.getAnnotation(EventHandler.class).ignoreCancelled()); }
 }
