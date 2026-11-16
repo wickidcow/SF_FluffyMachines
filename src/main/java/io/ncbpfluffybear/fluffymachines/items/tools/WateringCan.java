@@ -220,7 +220,9 @@ public class WateringCan extends SimpleSlimefunItem<ItemUseHandler> implements C
 
         if (updateType == 1) {
 
-            if (usesLeft == 0) {
+            // A legacy/corrupt negative charge must never become usable water.
+            // Do not rewrite it: a source-water refill can safely restore it.
+            if (usesLeft <= 0) {
                 Utils.send(p, "&cYou need to fill your Watering Can!");
                 return false;
             }
@@ -233,7 +235,9 @@ public class WateringCan extends SimpleSlimefunItem<ItemUseHandler> implements C
             usesLeft = can.getUses().getValue();
 
         } else if (updateType == 3) {
-            if (usesLeft == 0) {
+            // A legacy/corrupt negative charge must never become usable water.
+            // Do not rewrite it: a source-water refill can safely restore it.
+            if (usesLeft <= 0) {
                 Utils.send(p, "&cYou need to fill your Watering Can!");
                 return false;
             }
