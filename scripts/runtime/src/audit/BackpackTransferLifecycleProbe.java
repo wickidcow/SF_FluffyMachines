@@ -1018,6 +1018,9 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                     && "owner-private-marker".equals(held.getItemMeta()
                             .getPersistentDataContainer().get(marker, PersistentDataType.STRING)),
                     "refill and use preserve item quantity and unrelated owner PDC");
+            writeJson(getDataFolder().toPath().resolve("watering-can-charge-restart-fixture.json"),
+                    Map.of("serialized_item", Base64.getEncoder().encodeToString(held.serializeAsBytes()),
+                            "expected_uses", maximum - 1));
             check.note("Real registered production WateringCan and Paper ItemMeta/PDC; "
                     + "player API double only, no claim of protected live sapling behavior.");
             return check;
@@ -1765,6 +1768,41 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                                 }));
                     }));
         }
+        // Serialize the native watering-can item across the process boundary;
+        // Paper must reconstruct its own charge PDC and unrelated owner field.
+        chain = chain.thenCompose(v -> owner(() -> {
+            final Map<String, Object> fixture;
+            try {
+                Type fixtureType = new TypeToken<Map<String, Object>>() {}.getType();
+                fixture = JSON.fromJson(Files.readString(getDataFolder().toPath()
+                        .resolve("watering-can-charge-restart-fixture.json")), fixtureType);
+            } catch (IOException failure) {
+                throw new IllegalStateException("Missing native watering-can restart fixture", failure);
+            }
+            if (fixture == null || !(fixture.get("serialized_item") instanceof String encoded)) {
+                throw new IllegalStateException("Invalid watering-can restart fixture");
+            }
+            ItemStack restored = ItemStack.deserializeBytes(Base64.getDecoder().decode(encoded));
+            NamespacedKey ownerMarker = new NamespacedKey(this, "native_water_test_owner");
+            NamespacedKey usage = new NamespacedKey(
+                    io.ncbpfluffybear.fluffymachines.FluffyMachines.getInstance(),
+                    "watering_can_usage");
+            Integer count = restored.getItemMeta().getPersistentDataContainer()
+                    .get(usage, PersistentDataType.INTEGER);
+            String marker = restored.getItemMeta().getPersistentDataContainer()
+                    .get(ownerMarker, PersistentDataType.STRING);
+            Check check = new Check();
+            check.that(restored.getAmount() == 1
+                    && SlimefunItem.getById("WATERING_CAN") != null
+                    && restored.getType() == SlimefunItem.getById("WATERING_CAN").getItem().getType(),
+                    "same registered Watering Can item and quantity survive a clean Paper restart");
+            check.that(count != null && count == ((Number) fixture.get("expected_uses")).intValue(),
+                    "typed watering charge PDC survives a separate native Paper process");
+            check.that("owner-private-marker".equals(marker),
+                    "unrelated owner PDC survives native item serialization and restart");
+            results.add(check.result("restart-watering-can-charge-parity"));
+            return (Void) null;
+        }));
         // A separate process must reload both output buffers and the durable reserve.
         return chain.thenCompose(v -> {
             final Map<String, Object> fixture;
