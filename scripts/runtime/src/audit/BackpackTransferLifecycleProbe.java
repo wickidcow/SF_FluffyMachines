@@ -15,6 +15,7 @@ import io.github.thebusybiscuit.slimefun4.implementation.Slimefun;
 import io.github.thebusybiscuit.slimefun4.core.networks.cargo.CargoNet;
 import io.github.thebusybiscuit.slimefun4.utils.itemstack.ItemStackWrapper;
 import io.ncbpfluffybear.fluffymachines.items.Barrel;
+import io.ncbpfluffybear.fluffymachines.items.tools.WateringCan;
 import io.ncbpfluffybear.fluffymachines.utils.BarrelDisplayManager;
 import io.ncbpfluffybear.fluffymachines.utils.Utils;
 import io.ncbpfluffybear.fluffymachines.machines.BackpackLoader;
@@ -125,6 +126,8 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                 new Scenario("barrel-display-and-quantities", this::barrelDisplayLifecycle),
                 new Scenario("barrel-quick-withdraw-two-outputs", this::barrelQuickWithdrawTwoOutputs),
                 new Scenario("barrel-native-unsafe-state-reason", this::barrelNativeUnsafeStateReason),
+                new Scenario("watering-can-native-charge-parity", this::wateringCanNativeChargeParity),
+                new Scenario("watering-can-real-paper-sapling", this::wateringCanRealPaperSapling),
                 new Scenario("barrel-slimefun-cargo-metadata", this::barrelSlimefunCargoMetadata),
                 new Scenario("barrel-canonical-presentation-self-heal", this::barrelCanonicalPresentationSelfHeal),
                 new Scenario("barrel-historical-item-nonmerge", this::barrelHistoricalItemNonmerge),
@@ -1018,6 +1021,138 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
      * the disposable server has no connected human player.
      * Two buffered outputs plus further empty slots previously read OUTPUT_SLOTS[2].
      */
+    /**
+     * Exercise production watering-can charge serialization on real Paper ItemMeta.
+     * A controlled Player API double observes sounds/messages; this does not
+     * impersonate a connected player's protection or sapling-growth events.
+     */
+    private CompletableFuture<Check> wateringCanNativeChargeParity() {
+        return owner(() -> {
+            Check check = new Check();
+            SlimefunItem registered = SlimefunItem.getById("WATERING_CAN");
+            if (!(registered instanceof WateringCan can)) {
+                throw new IllegalStateException("Registered production WATERING_CAN is unavailable");
+            }
+            ItemStack held = can.getItem().clone();
+            held.setAmount(1);
+            org.bukkit.inventory.meta.ItemMeta original = held.getItemMeta();
+            if (original == null) {
+                throw new IllegalStateException("Watering Can has no native item metadata");
+            }
+            NamespacedKey marker = new NamespacedKey(this, "native_water_test_owner");
+            original.getPersistentDataContainer().set(
+                    marker, PersistentDataType.STRING, "owner-private-marker");
+            held.setItemMeta(original);
+            ItemStack untouched = held.clone();
+
+            org.bukkit.entity.Player controlledPlayer = (org.bukkit.entity.Player)
+                    java.lang.reflect.Proxy.newProxyInstance(
+                            org.bukkit.entity.Player.class.getClassLoader(),
+                            new Class<?>[] {org.bukkit.entity.Player.class},
+                            (proxy, method, args) -> {
+                                return switch (method.getName()) {
+                                    case "getLocation" -> world.getSpawnLocation();
+                                    case "playSound", "sendMessage" -> null;
+                                    default -> throw new UnsupportedOperationException(
+                                            "Unexpected controlled player API: " + method.getName());
+                                };
+                            });
+
+            check.that(!WateringCan.updateUses(can, controlledPlayer, held, 1),
+                    "unfilled watering can refuses a consumption");
+            check.that(held.isSimilar(untouched) && held.getAmount() == 1,
+                    "refused consumption leaves all native item metadata unchanged");
+
+            int maximum = can.getUses().getValue();
+            check.that(maximum > 0, "registered watering can has positive usage capacity");
+            check.that(WateringCan.updateUses(can, controlledPlayer, held, 2),
+                    "production refill accepts source water");
+            NamespacedKey uses = new NamespacedKey(
+                    io.ncbpfluffybear.fluffymachines.FluffyMachines.getInstance(),
+                    "watering_can_usage");
+            Integer refilled = held.getItemMeta().getPersistentDataContainer()
+                    .get(uses, PersistentDataType.INTEGER);
+            check.that(refilled != null && refilled == maximum,
+                    "refill writes maximum charge to typed native PDC");
+            check.that(WateringCan.updateUses(can, controlledPlayer, held, 1),
+                    "production use consumes one charge");
+            Integer remaining = held.getItemMeta().getPersistentDataContainer()
+                    .get(uses, PersistentDataType.INTEGER);
+            check.that(remaining != null && remaining == maximum - 1,
+                    "exactly one charge is consumed");
+            check.that(held.getAmount() == 1
+                    && "owner-private-marker".equals(held.getItemMeta()
+                            .getPersistentDataContainer().get(marker, PersistentDataType.STRING)),
+                    "refill and use preserve item quantity and unrelated owner PDC");
+            ItemStack corruptedCharge = held.clone();
+            corruptedCharge.editMeta(meta -> meta.getPersistentDataContainer()
+                    .set(uses, PersistentDataType.INTEGER, -1));
+            ItemStack unchangedCorruption = corruptedCharge.clone();
+            check.that(!WateringCan.updateUses(can, controlledPlayer, corruptedCharge, 1)
+                    && corruptedCharge.equals(unchangedCorruption),
+                    "negative typed PDC charge cannot be consumed or silently rewritten");
+            check.that(!WateringCan.updateUses(can, controlledPlayer, corruptedCharge, 3)
+                    && corruptedCharge.equals(unchangedCorruption),
+                    "negative typed PDC charge cannot trigger discharge or silent repair");
+            check.that(WateringCan.updateUses(can, controlledPlayer, corruptedCharge, 2)
+                    && maximum == corruptedCharge.getItemMeta().getPersistentDataContainer()
+                            .get(uses, PersistentDataType.INTEGER)
+                    && corruptedCharge.getAmount() == 1
+                    && "owner-private-marker".equals(corruptedCharge.getItemMeta()
+                            .getPersistentDataContainer().get(marker, PersistentDataType.STRING)),
+                    "explicit refill restores invalid charge without losing owner metadata or quantity");
+            writeJson(getDataFolder().toPath().resolve("watering-can-charge-restart-fixture.json"),
+                    Map.of("serialized_item", Base64.getEncoder().encodeToString(held.serializeAsBytes()),
+                            "expected_uses", maximum - 1));
+            check.note("Real registered production WateringCan and Paper ItemMeta/PDC; "
+                    + "player API double only, no claim of protected live sapling behavior.");
+            return check;
+        });
+    }
+
+    /**
+     * Use the real production bonemeal helper on a real Paper OAK_SAPLING,
+     * not a proxy block; the tree outcome is random and deliberately not
+     * assumed. Permission checks in the player handler still need owner-world
+     * protected-region acceptance and are not simulated here.
+     */
+    private CompletableFuture<Check> wateringCanRealPaperSapling() {
+        return owner(() -> {
+            Check check = new Check();
+            if (!(SlimefunItem.getById("WATERING_CAN") instanceof WateringCan)) {
+                throw new IllegalStateException("Production WATERING_CAN is not registered");
+            }
+            fixtureNumber++;
+            Location loc = new Location(world, 1536 + fixtureNumber * 128, 64, 1536);
+            holdChunk(loc);
+            Block soil = loc.clone().subtract(0, 1, 0).getBlock();
+            soil.setType(Material.GRASS_BLOCK, false);
+            Block sapling = loc.getBlock();
+            sapling.setType(Material.OAK_SAPLING, false);
+            check.that(sapling.getType() == Material.OAK_SAPLING,
+                    "native disposable Paper world contains a real planted oak sapling");
+
+            try {
+                Class<?> helper = Class.forName(
+                        "io.ncbpfluffybear.fluffymachines.items.tools.SaplingGrowth");
+                Method apply = helper.getDeclaredMethod(
+                        "applyModernBoneMeal", Block.class, BlockFace.class);
+                apply.setAccessible(true);
+                apply.invoke(null, sapling, BlockFace.UP);
+            } catch (ReflectiveOperationException failure) {
+                throw new IllegalStateException(
+                        "Production Watering Can bonemeal helper failed on real Paper block", failure);
+            }
+            check.that(sapling.getType() == Material.OAK_SAPLING
+                            || sapling.getType() == Material.OAK_LOG,
+                    "single native bonemeal attempt never leaves a missing sapling/tree base");
+            check.note("Actual production SaplingGrowth.applyModernBoneMeal on Paper OAK_SAPLING. "
+                    + "This checks non-destructive native execution, not guaranteed random growth, "
+                    + "connected-player protection, or ExoticGarden hooks.");
+            return check;
+        });
+    }
+
     private CompletableFuture<Check> barrelQuickWithdrawTwoOutputs() {
         return owner(() -> {
             Check check = new Check();
@@ -1740,6 +1875,41 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                                 }));
                     }));
         }
+        // Serialize the native watering-can item across the process boundary;
+        // Paper must reconstruct its own charge PDC and unrelated owner field.
+        chain = chain.thenCompose(v -> owner(() -> {
+            final Map<String, Object> fixture;
+            try {
+                Type fixtureType = new TypeToken<Map<String, Object>>() {}.getType();
+                fixture = JSON.fromJson(Files.readString(getDataFolder().toPath()
+                        .resolve("watering-can-charge-restart-fixture.json")), fixtureType);
+            } catch (IOException failure) {
+                throw new IllegalStateException("Missing native watering-can restart fixture", failure);
+            }
+            if (fixture == null || !(fixture.get("serialized_item") instanceof String encoded)) {
+                throw new IllegalStateException("Invalid watering-can restart fixture");
+            }
+            ItemStack restored = ItemStack.deserializeBytes(Base64.getDecoder().decode(encoded));
+            NamespacedKey ownerMarker = new NamespacedKey(this, "native_water_test_owner");
+            NamespacedKey usage = new NamespacedKey(
+                    io.ncbpfluffybear.fluffymachines.FluffyMachines.getInstance(),
+                    "watering_can_usage");
+            Integer count = restored.getItemMeta().getPersistentDataContainer()
+                    .get(usage, PersistentDataType.INTEGER);
+            String marker = restored.getItemMeta().getPersistentDataContainer()
+                    .get(ownerMarker, PersistentDataType.STRING);
+            Check check = new Check();
+            check.that(restored.getAmount() == 1
+                    && SlimefunItem.getById("WATERING_CAN") != null
+                    && restored.getType() == SlimefunItem.getById("WATERING_CAN").getItem().getType(),
+                    "same registered Watering Can item and quantity survive a clean Paper restart");
+            check.that(count != null && count == ((Number) fixture.get("expected_uses")).intValue(),
+                    "typed watering charge PDC survives a separate native Paper process");
+            check.that("owner-private-marker".equals(marker),
+                    "unrelated owner PDC survives native item serialization and restart");
+            results.add(check.result("restart-watering-can-charge-parity"));
+            return (Void) null;
+        }));
         // A separate process must reload both output buffers and the durable reserve.
         return chain.thenCompose(v -> {
             final Map<String, Object> fixture;
