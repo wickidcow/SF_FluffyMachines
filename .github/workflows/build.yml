@@ -148,7 +148,7 @@ jobs:
                   raise SystemExit('Current Slimefun jar failed CRC verification')
               descriptor = jar.read('plugin.yml').decode()
               if 'version: 4.1.80' not in descriptor:
-                  raise SystemExit('Current Slimefun jar descriptor is not v4.1.79')
+                  raise SystemExit('Current Slimefun jar descriptor is not v4.1.80')
           PY
           python3 - <<'PY'
           import json, os, subprocess
