@@ -22,8 +22,8 @@ permissions:
   contents: read
 
 env:
-  LEGACY_ARTIFACT_VERSION: "26.2.18"
-  OUTPUT_NAME: "SF_FluffyMachines26.2.18.jar"
+  LEGACY_ARTIFACT_VERSION: "26.2.19"
+  OUTPUT_NAME: "SF_FluffyMachines26.2.19.jar"
 
 concurrency:
   group: fluffy-machines-${{ github.workflow }}-${{ github.ref }}
@@ -67,7 +67,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -Fq '<version>26.2.18</version>' pom.xml
+          grep -Fq '<version>26.2.19</version>' pom.xml
           grep -Fq '<maven.compiler.release>21</maven.compiler.release>' pom.xml
           grep -Fq '<paper.version>1.21.11-R0.1-SNAPSHOT</paper.version>' pom.xml
           grep -Fq '<finalName>SF_FluffyMachines${project.version}</finalName>' pom.xml
@@ -130,24 +130,24 @@ jobs:
                   '--expect', 'fixed',
               ], check=True)
           PY
-      - name: Verify current Slimefun Legacy 4.1.79 native Cargo and restart (Paper 26.3)
+      - name: Verify current Slimefun Legacy 4.1.80 native Cargo and restart (Paper 26.3)
         shell: bash
         run: |
           set -euo pipefail
-          CORE=".native-inputs/Slimefun-Legacy4.1.79.jar"
+          CORE=".native-inputs/Slimefun-Legacy4.1.80.jar"
           curl --fail --show-error --silent --location --retry 2 \
             --proto '=https' --proto-redir '=https' --tlsv1.2 \
             --connect-timeout 20 --max-time 240 \
-            -o "$CORE" "https://github.com/wickidcow/Slimefun-Legacy/releases/download/v4.1.79/Slimefun-Legacy4.1.79.jar"
-          test "$(stat -c '%s' "$CORE")" -eq 8696827
-          printf '44cbf997f34efb79a2365f5cf18b6902d694ea010a307e5a4a32d23286e8d74e  %s\n' "$CORE" | sha256sum --check --status
+            -o "$CORE" "https://github.com/wickidcow/Slimefun-Legacy/releases/download/v4.1.80/Slimefun-Legacy4.1.80.jar"
+          test "$(stat -c '%s' "$CORE")" -eq 8718859
+          printf '7d93fa0ddfa7161a812ee4781b513703798f23ce77c5f45eb7a56b133af7ad5e  %s\n' "$CORE" | sha256sum --check --status
           python3 - <<'PY'
           from zipfile import ZipFile
-          with ZipFile('.native-inputs/Slimefun-Legacy4.1.79.jar') as jar:
+          with ZipFile('.native-inputs/Slimefun-Legacy4.1.80.jar') as jar:
               if jar.testzip() is not None:
                   raise SystemExit('Current Slimefun jar failed CRC verification')
               descriptor = jar.read('plugin.yml').decode()
-              if 'version: 4.1.79' not in descriptor:
+              if 'version: 4.1.80' not in descriptor:
                   raise SystemExit('Current Slimefun jar descriptor is not v4.1.79')
           PY
           python3 - <<'PY'
@@ -157,7 +157,7 @@ jobs:
           subprocess.run([
               'python3', 'scripts/runtime/run_backpack_transfer_probe.py',
               '--paper', manifest['paper']['26.3']['path'],
-              '--core', str(Path('.native-inputs/Slimefun-Legacy4.1.79.jar').resolve()),
+              '--core', str(Path('.native-inputs/Slimefun-Legacy4.1.80.jar').resolve()),
               '--addon', str(Path('target') / os.environ['OUTPUT_NAME']),
               '--work-dir', '.native-current/26.3',
               '--java', str(Path(os.environ['JAVA_HOME']) / 'bin/java'),
