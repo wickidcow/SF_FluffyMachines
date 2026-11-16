@@ -652,7 +652,7 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
         if (!contents.safe()) {
             // Never claim a misleading zero or combine mismatched physical stacks.
             expected = new CustomItemStack(Material.RED_STAINED_GLASS_PANE,
-                    "&cStorage needs review", "&7Saved count/output identity conflict",
+                    "&cStorage needs review", "&7" + contents.rejection().explanation(),
                     "&cDo not break this barrel; ask an administrator");
         } else {
             long total = contents.amount();
