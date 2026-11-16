@@ -15,6 +15,7 @@ import io.github.thebusybiscuit.slimefun4.implementation.Slimefun;
 import io.github.thebusybiscuit.slimefun4.core.networks.cargo.CargoNet;
 import io.github.thebusybiscuit.slimefun4.utils.itemstack.ItemStackWrapper;
 import io.ncbpfluffybear.fluffymachines.items.Barrel;
+import io.ncbpfluffybear.fluffymachines.items.tools.WateringCan;
 import io.ncbpfluffybear.fluffymachines.utils.BarrelDisplayManager;
 import io.ncbpfluffybear.fluffymachines.utils.Utils;
 import io.ncbpfluffybear.fluffymachines.machines.BackpackLoader;
@@ -124,6 +125,7 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                 new Scenario("paxel-native-item-metadata", this::paxelNativeItemMetadata),
                 new Scenario("barrel-display-and-quantities", this::barrelDisplayLifecycle),
                 new Scenario("barrel-quick-withdraw-two-outputs", this::barrelQuickWithdrawTwoOutputs),
+                new Scenario("watering-can-native-charge-parity", this::wateringCanNativeChargeParity),
                 new Scenario("barrel-slimefun-cargo-metadata", this::barrelSlimefunCargoMetadata),
                 new Scenario("barrel-canonical-presentation-self-heal", this::barrelCanonicalPresentationSelfHeal),
                 new Scenario("barrel-historical-item-nonmerge", this::barrelHistoricalItemNonmerge),
@@ -952,6 +954,75 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
      * the disposable server has no connected human player.
      * Two buffered outputs plus further empty slots previously read OUTPUT_SLOTS[2].
      */
+    /**
+     * Exercise production watering-can charge serialization on real Paper ItemMeta.
+     * A controlled Player API double observes sounds/messages; this does not
+     * impersonate a connected player's protection or sapling-growth events.
+     */
+    private CompletableFuture<Check> wateringCanNativeChargeParity() {
+        return owner(() -> {
+            Check check = new Check();
+            SlimefunItem registered = SlimefunItem.getById("WATERING_CAN");
+            if (!(registered instanceof WateringCan can)) {
+                throw new IllegalStateException("Registered production WATERING_CAN is unavailable");
+            }
+            ItemStack held = can.getItem().clone();
+            held.setAmount(1);
+            org.bukkit.inventory.meta.ItemMeta original = held.getItemMeta();
+            if (original == null) {
+                throw new IllegalStateException("Watering Can has no native item metadata");
+            }
+            NamespacedKey marker = new NamespacedKey(this, "native_water_test_owner");
+            original.getPersistentDataContainer().set(
+                    marker, PersistentDataType.STRING, "owner-private-marker");
+            held.setItemMeta(original);
+            ItemStack untouched = held.clone();
+
+            org.bukkit.entity.Player controlledPlayer = (org.bukkit.entity.Player)
+                    java.lang.reflect.Proxy.newProxyInstance(
+                            org.bukkit.entity.Player.class.getClassLoader(),
+                            new Class<?>[] {org.bukkit.entity.Player.class},
+                            (proxy, method, args) -> {
+                                return switch (method.getName()) {
+                                    case "getLocation" -> world.getSpawnLocation();
+                                    case "playSound", "sendMessage" -> null;
+                                    default -> throw new UnsupportedOperationException(
+                                            "Unexpected controlled player API: " + method.getName());
+                                };
+                            });
+
+            check.that(!WateringCan.updateUses(can, controlledPlayer, held, 1),
+                    "unfilled watering can refuses a consumption");
+            check.that(held.isSimilar(untouched) && held.getAmount() == 1,
+                    "refused consumption leaves all native item metadata unchanged");
+
+            int maximum = can.getUses().getValue();
+            check.that(maximum > 0, "registered watering can has positive usage capacity");
+            check.that(WateringCan.updateUses(can, controlledPlayer, held, 2),
+                    "production refill accepts source water");
+            NamespacedKey uses = new NamespacedKey(
+                    io.ncbpfluffybear.fluffymachines.FluffyMachines.getInstance(),
+                    "watering_can_usage");
+            Integer refilled = held.getItemMeta().getPersistentDataContainer()
+                    .get(uses, PersistentDataType.INTEGER);
+            check.that(refilled != null && refilled == maximum,
+                    "refill writes maximum charge to typed native PDC");
+            check.that(WateringCan.updateUses(can, controlledPlayer, held, 1),
+                    "production use consumes one charge");
+            Integer remaining = held.getItemMeta().getPersistentDataContainer()
+                    .get(uses, PersistentDataType.INTEGER);
+            check.that(remaining != null && remaining == maximum - 1,
+                    "exactly one charge is consumed");
+            check.that(held.getAmount() == 1
+                    && "owner-private-marker".equals(held.getItemMeta()
+                            .getPersistentDataContainer().get(marker, PersistentDataType.STRING)),
+                    "refill and use preserve item quantity and unrelated owner PDC");
+            check.note("Real registered production WateringCan and Paper ItemMeta/PDC; "
+                    + "player API double only, no claim of protected live sapling behavior.");
+            return check;
+        });
+    }
+
     private CompletableFuture<Check> barrelQuickWithdrawTwoOutputs() {
         return owner(() -> {
             Check check = new Check();
