@@ -152,6 +152,14 @@ public class WateringCan extends SimpleSlimefunItem<ItemUseHandler> implements C
                         // Trees
                     } else if (Tag.SAPLINGS.isTagged(b.getType())) {
 
+                        // Check the exotic-plant policy BEFORE charging the watering can.
+                        // Previously disabled plants still consumed water, then returned.
+                        boolean exoticPlant = StorageCacheUtils.hasBlock(b.getLocation());
+                        double exoticChance = exoticGardenSuccessChance.getValue();
+                        if (!SaplingGrowth.canConsumeWater(exoticPlant, exoticChance)) {
+                            Utils.send(p, "&cYou cannot water Exotic Garden plants!");
+                            return;
+                        }
                         if (!updateUses(this, p, item, 1)) {
                             return;
                         }
@@ -160,12 +168,8 @@ public class WateringCan extends SimpleSlimefunItem<ItemUseHandler> implements C
                         double random = ThreadLocalRandom.current().nextDouble();
                         Material saplingMaterial = b.getType();
 
-                        if (StorageCacheUtils.hasBlock(b.getLocation())) {
-                            if (exoticGardenSuccessChance.getValue() == 0) {
-                                Utils.send(p, "&cYou cannot water Exotic Garden plants!");
-                                return;
-                            }
-                            if (random < exoticGardenSuccessChance.getValue()) {
+                        if (exoticPlant) {
+                            if (random < exoticChance) {
                                 Bukkit.getPluginManager().callEvent(new StructureGrowEvent(
                                     b.getLocation(), getTreeFromSapling(saplingMaterial), false, p, Collections.singletonList(b.getState())
                                 ));
