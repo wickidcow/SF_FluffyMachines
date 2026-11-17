@@ -1,0 +1,126 @@
+name: Publish verified FluffyMachines master
+
+on:
+  workflow_run:
+    workflows: ['Build FluffyMachines Legacy']
+    types: [completed]
+    branches: [master]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: fluffy-immutable-master-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'master' && github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+      TESTED_RUN: ${{ github.event.workflow_run.id }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - name: Prove exact-green-master release identity and immutable tag state
+        id: gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          LIVE_SHA="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/master" --jq '.object.sha')"
+          test "$LIVE_SHA" = "$TESTED_SHA" && test "$(git rev-parse HEAD)" = "$TESTED_SHA" || {
+            echo 'Another master commit superseded this tested source: skip, never tag stale content.'
+            echo 'publish=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+          VERSION="$(python3 - <<'PY'
+          import re
+          from pathlib import Path
+          text = Path('pom.xml').read_text(encoding='utf-8')
+          version = re.search(r'<project\b[^>]*>.*?<version>([0-9]+(?:\.[0-9]+)+)</version>', text, re.S)
+          if not version: raise SystemExit('Missing versioned Maven plugin source')
+          print(version.group(1))
+          PY
+          )"
+          NAME="SF_FluffyMachines$VERSION.jar"
+          test -s "docs/releases/$VERSION.md"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$TESTED_RUN/jobs?per_page=100" > "$RUNNER_TEMP/jobs.json"
+          python3 - "$RUNNER_TEMP/jobs.json" <<'PY'
+          import json, sys
+          jobs = json.load(open(sys.argv[1], encoding='utf-8'))['jobs']
+          for name in ('build', 'Verify same-run raw plugin transfer'):
+              hits = [job for job in jobs if job['name'] == name]
+              if len(hits) != 1 or hits[0]['conclusion'] != 'success':
+                  raise SystemExit('Required same-run job did not pass: ' + name)
+          PY
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$TESTED_RUN/artifacts?per_page=100" > "$RUNNER_TEMP/artifacts.json"
+          SHA256="$(python3 - "$RUNNER_TEMP/artifacts.json" "$NAME" "$TESTED_SHA" <<'PY'
+          import json, re, sys
+          data = json.load(open(sys.argv[1], encoding='utf-8'))
+          matches = [item for item in data['artifacts']
+                     if item['name'] == sys.argv[2] and not item['expired']
+                     and item.get('workflow_run', {}).get('head_sha') == sys.argv[3]]
+          if len(matches) != 1: raise SystemExit('Missing/ambiguous same-run canonical raw JAR artifact')
+          digest = matches[0].get('digest', '')
+          if not re.fullmatch(r'sha256:[0-9a-f]{64}', digest):
+              raise SystemExit('Missing official artifact digest')
+          print(digest.split(':', 1)[1])
+          PY
+          )"
+          TAG="v$VERSION"
+          if gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" >/dev/null 2>"$RUNNER_TEMP/release.err"; then
+            echo "Immutable $TAG already published; no duplicate."
+            echo 'publish=false' >> "$GITHUB_OUTPUT"
+            exit 0
+          elif ! grep -Fq 'HTTP 404' "$RUNNER_TEMP/release.err"; then
+            cat "$RUNNER_TEMP/release.err" >&2
+            exit 1
+          fi
+          # Existing orphan tags must not be reused or silently moved.
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" >/dev/null 2>"$RUNNER_TEMP/tag.err"; then
+            echo "Refusing pre-existing tag $TAG without published release." >&2
+            exit 1
+          elif ! grep -Fq 'HTTP 404' "$RUNNER_TEMP/tag.err"; then
+            cat "$RUNNER_TEMP/tag.err" >&2
+            exit 1
+          fi
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "sha256=$SHA256" >> "$GITHUB_OUTPUT"
+      - name: Download only the verified successful build's raw plugin JAR
+        if: steps.gate.outputs.publish == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ steps.gate.outputs.name }}
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+          path: dist
+          skip-decompress: true
+      - name: Atomically tag and publish verified immutable JAR
+        if: steps.gate.outputs.publish == 'true'
+        env:
+          VERSION: ${{ steps.gate.outputs.version }}
+          NAME: ${{ steps.gate.outputs.name }}
+          EXPECTED_SHA256: ${{ steps.gate.outputs.sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/immutable_release_guard.py --jar "dist/$NAME" --version "$VERSION" --sha256 "$EXPECTED_SHA256"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/master" --jq '.object.sha')" = "$TESTED_SHA"
+          TAG="v$VERSION"
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs"             -f "ref=refs/tags/$TAG" -f "sha=$TESTED_SHA" > "$RUNNER_TEMP/tag.json"
+          gh release create "$TAG" "dist/$NAME" --verify-tag             --repo "$GITHUB_REPOSITORY" --target "$TESTED_SHA"             --title "SF_FluffyMachines $TAG" --notes-file "docs/releases/$VERSION.md"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq '.object.sha')" = "$TESTED_SHA"
+          mkdir -p "$RUNNER_TEMP/published-verification"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY"             --pattern "$NAME" --dir "$RUNNER_TEMP/published-verification"
+          python3 scripts/immutable_release_guard.py             --jar "$RUNNER_TEMP/published-verification/$NAME"             --version "$VERSION" --sha256 "$EXPECTED_SHA256"
