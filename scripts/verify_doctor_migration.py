@@ -96,6 +96,14 @@ require('bindDollyItem(dolly, backpack)' in dolly,
 reject('IAsyncReadCallback' in dolly or 'controller.getBackpackAsync(' in dolly,
        "Dolly runtime must not reintroduce deprecated callback-style backpack reads")
 
+reject('blockData.setData("stored"' in doctor,
+       "Fluffy Doctor must NEVER reset missing, invalid or unknown historical barrel reserves")
+require('BarrelDoctorSafety.safeCapacityRepair(stored, configuredMaximum)' in doctor,
+        "Mini Barrel capacity repairs require a verified persisted reserve")
+require('if (safeSize == null)' in doctor and 'capacity left untouched' in doctor,
+        "Invalid capacity/unknown reserve must be left untouched")
+require('historical reserve unverified; no count rewrite' in doctor,
+        "Doctor must report unverified historic quantities instead of claiming empty barrels")
 require('controller.getAllLoadedChunkData()' in doctor,
         "Fluffy barrel Doctor must stay limited to already-loaded Slimefun block data")
 reject('loadChunk' in doctor or 'getChunkAtAsync' in doctor,

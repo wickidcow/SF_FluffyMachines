@@ -64,12 +64,16 @@ public final class FluffyDoctor {
             boolean emptyDisplay = display == null || display.getType() == Material.BARRIER;
 
             if (stored == null) {
-                report.issue(sfId, blockData, "invalid or missing 'stored' count: " + printable(storedRaw));
-                if (repair && emptyDisplay) {
-                    blockData.setData("stored", "0");
-                    stored = 0;
-                    report.repaired++;
-                    report.detail(locationPrefix(sfId, blockData) + "repaired empty barrel 'stored' count to 0");
+                // An empty/missing presentation is NOT evidence that the historical
+                // reserve is zero. Rewriting the count could erase a valid but
+                // currently unregistered item reserve. Remain read-only even for
+                // an explicitly requested Doctor repair.
+                report.issue(sfId, blockData,
+                        "invalid or missing 'stored' count: " + printable(storedRaw)
+                                + "; historical reserve unverified; no count rewrite");
+                if (repair) {
+                    report.detail(locationPrefix(sfId, blockData)
+                            + "saved count left untouched; restore from a verified backup only");
                 }
             }
 
@@ -81,11 +85,19 @@ public final class FluffyDoctor {
                 if (maxSize == null || maxSize > configuredMaximum) {
                     report.issue(sfId, blockData, "invalid Mini Barrel 'max-size': " + printable(maxRaw));
                     if (repair) {
-                        int safeSize = stored != null && stored > configuredMaximum ? stored : configuredMaximum;
-                        blockData.setData("max-size", Integer.toString(safeSize));
-                        capacity = safeSize;
-                        report.repaired++;
-                        report.detail(locationPrefix(sfId, blockData) + "repaired Mini Barrel capacity to " + safeSize);
+                        Integer safeSize = BarrelDoctorSafety.safeCapacityRepair(stored, configuredMaximum);
+                        if (safeSize == null) {
+                            // Unknown stored quantity or invalid maximum: no
+                            // backing-data proof exists to justify any change.
+                            report.detail(locationPrefix(sfId, blockData)
+                                    + "Mini Barrel capacity left untouched: reserve or maximum unverified");
+                        } else {
+                            blockData.setData("max-size", Integer.toString(safeSize));
+                            capacity = safeSize;
+                            report.repaired++;
+                            report.detail(locationPrefix(sfId, blockData)
+                                    + "repaired Mini Barrel capacity to " + safeSize);
+                        }
                     }
                 } else {
                     capacity = maxSize;
