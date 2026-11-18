@@ -85,7 +85,7 @@ public final class FluffyDoctor {
                 if (maxSize == null || maxSize > configuredMaximum) {
                     report.issue(sfId, blockData, "invalid Mini Barrel 'max-size': " + printable(maxRaw));
                     if (repair) {
-                        Integer safeSize = safeCapacityRepair(stored, configuredMaximum);
+                        Integer safeSize = BarrelDoctorSafety.safeCapacityRepair(stored, configuredMaximum);
                         if (safeSize == null) {
                             // Unknown stored quantity or invalid maximum: no
                             // backing-data proof exists to justify any change.
@@ -117,19 +117,6 @@ public final class FluffyDoctor {
             report.failures++;
             report.detail(locationPrefix(sfId, blockData) + "inspection failed: " + ex.getClass().getSimpleName());
         }
-    }
-
-    /**
-     * Only an independently valid saved quantity may justify raising a
-     * corrupt Mini Barrel capacity. Unknown counts must never be normalized
-     * into zero or used as an excuse to rewrite historical storage state.
-     * Package-private so quantity-conservation tests exercise this same rule.
-     */
-    static Integer safeCapacityRepair(Integer verifiedStored, int configuredMaximum) {
-        if (verifiedStored == null || verifiedStored < 0 || configuredMaximum <= 0) {
-            return null;
-        }
-        return Math.max(verifiedStored, configuredMaximum);
     }
 
     private static int configuredCapacity(String sfId) {
