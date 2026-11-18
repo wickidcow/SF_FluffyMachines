@@ -15,6 +15,8 @@ import io.github.thebusybiscuit.slimefun4.implementation.Slimefun;
 import io.github.thebusybiscuit.slimefun4.core.networks.cargo.CargoNet;
 import io.github.thebusybiscuit.slimefun4.utils.itemstack.ItemStackWrapper;
 import io.ncbpfluffybear.fluffymachines.items.Barrel;
+import io.ncbpfluffybear.fluffymachines.diagnostics.FluffyDoctor;
+import io.ncbpfluffybear.fluffymachines.diagnostics.FluffyDoctorReport;
 import io.ncbpfluffybear.fluffymachines.items.tools.WateringCan;
 import io.ncbpfluffybear.fluffymachines.utils.BarrelDisplayManager;
 import io.ncbpfluffybear.fluffymachines.utils.Utils;
@@ -126,6 +128,7 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                 new Scenario("barrel-display-and-quantities", this::barrelDisplayLifecycle),
                 new Scenario("barrel-quick-withdraw-two-outputs", this::barrelQuickWithdrawTwoOutputs),
                 new Scenario("barrel-native-unsafe-state-reason", this::barrelNativeUnsafeStateReason),
+                new Scenario("barrel-doctor-invalid-count-preserved", this::barrelDoctorInvalidCountPreserved),
                 new Scenario("watering-can-native-charge-parity", this::wateringCanNativeChargeParity),
                 new Scenario("watering-can-real-paper-sapling", this::wateringCanRealPaperSapling),
                 new Scenario("barrel-slimefun-cargo-metadata", this::barrelSlimefunCargoMetadata),
@@ -858,6 +861,65 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                     "Reading/rejecting the unsafe state never creates a saved reserve or touches output items");
             check.note("Real Paper registered BlockMenu and error status; synthetic mismatched "
                     + "registered items only. Does not establish identity of historical AlbionMC stock.");
+            return check;
+        });
+    }
+
+    /**
+     * Native fail-closed Doctor regression: a cosmetic empty display cannot
+     * prove an unreadable historical reserve is empty. Invoke the actual
+     * production Doctor repair on a real loaded Paper barrel and preserve its
+     * typed PDC-bearing physical output before an independent JVM restart.
+     */
+    private CompletableFuture<Check> barrelDoctorInvalidCountPreserved() {
+        return owner(() -> {
+            Check check = new Check();
+            SlimefunItem sfBarrel = SlimefunItem.getById("SMALL_FLUFFY_BARREL");
+            SlimefunItem sfMaterial = SlimefunItem.getById("REINFORCED_PLATE");
+            if (!(sfBarrel instanceof Barrel barrel) || sfMaterial == null)
+                throw new IllegalStateException("Native Doctor barrel fixtures are missing");
+            fixtureNumber++;
+            Location location = new Location(world, 2048 + fixtureNumber * 128, 64, 1424);
+            holdChunk(location);
+            blocks.getChunkData(location.getChunk());
+            Block block = location.getBlock();
+            block.setType(sfBarrel.getItem().getType(), false);
+            SlimefunBlockData data = blocks.createBlock(location, sfBarrel.getId());
+            BlockMenu menu = data.getBlockMenu();
+            if (menu == null || !data.isDataLoaded())
+                throw new IllegalStateException("Native Doctor barrel has no loaded menu");
+
+            ItemStack physical = sfMaterial.getItem().clone();
+            physical.setAmount(19);
+            var meta = physical.getItemMeta();
+            var ownerKey = new NamespacedKey(this, "doctor_historical_owner");
+            meta.getPersistentDataContainer().set(
+                    ownerKey, PersistentDataType.STRING, "original-typed-owner");
+            physical.setItemMeta(meta);
+            menu.replaceExistingItem(31, new ItemStack(Material.BARRIER));
+            menu.replaceExistingItem(24, physical.clone());
+            final String invalidSavedCount = "invalid-unverified-history";
+            data.setData("stored", invalidSavedCount);
+            ItemStack physicalBefore = nativeCopy(menu.getItemInSlot(24));
+
+            FluffyDoctorReport report = FluffyDoctor.run(true);
+            check.that(report.getScannedEntries() > 0 && report.getIssuesFound() > 0,
+                    "Actual Fluffy Doctor repair detects the unverified native saved counter");
+            check.that(invalidSavedCount.equals(data.getData("stored"))
+                            && barrel.getStored(block) < 0,
+                    "Explicit Doctor repair does not convert unknown historical reserve to zero");
+            check.item(physicalBefore, menu.getItemInSlot(24),
+                    "Doctor leaves physical output quantity and all ItemMeta/PDC unchanged");
+            check.that(menu.getItemInSlot(31) != null
+                            && menu.getItemInSlot(31).getType() == Material.BARRIER,
+                    "Doctor does not replace empty cosmetic display with fabricated identity");
+            writeJson(getDataFolder().toPath().resolve("barrel-doctor-unverified-restart-fixture.json"),
+                    Map.of("x", location.getBlockX(), "y", location.getBlockY(),
+                            "z", location.getBlockZ(), "stored", invalidSavedCount,
+                            "original", Base64.getEncoder().encodeToString(
+                                    physicalBefore.serializeAsBytes())));
+            check.note("Paper native explicit Doctor repair on synthetic malformed count; "
+                    + "no historical AlbionMC reserve has been reconstructed or migrated.");
             return check;
         });
     }
@@ -1875,6 +1937,53 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                                 }));
                     }));
         }
+        // Require the synthetic invalid-reserve Doctor fixture to remain intact
+        // in a newly started Paper JVM, then repeat the real repair operation.
+        // Neither an empty display nor a successful restart proves a zero reserve.
+        chain = chain.thenCompose(v -> {
+            final Map<String, Object> fixture;
+            try {
+                Type fixtureType = new TypeToken<Map<String, Object>>() {}.getType();
+                fixture = JSON.fromJson(Files.readString(getDataFolder().toPath()
+                        .resolve("barrel-doctor-unverified-restart-fixture.json")), fixtureType);
+            } catch (IOException failure) {
+                return CompletableFuture.failedFuture(
+                        new IllegalStateException("Missing invalid-reserve Doctor restart fixture", failure));
+            }
+            if (fixture == null || !(fixture.get("stored") instanceof String)) {
+                return CompletableFuture.failedFuture(
+                        new IllegalStateException("Invalid historical-count Doctor restart fixture"));
+            }
+            return ownerCompose(() -> {
+                Location location = new Location(world, ((Number) fixture.get("x")).intValue(),
+                        ((Number) fixture.get("y")).intValue(), ((Number) fixture.get("z")).intValue());
+                holdChunk(location);
+                SlimefunBlockData data = blocks.getBlockData(location);
+                if (data == null) throw new IllegalStateException("Doctor barrel absent after Paper restart");
+                if (!data.isDataLoaded()) blocks.loadBlockData(data);
+                return waitUntil(() -> data.isDataLoaded() && data.getBlockMenu() != null, 100)
+                        .thenCompose(ready -> owner(() -> {
+                            BlockMenu menu = data.getBlockMenu();
+                            ItemStack original = ItemStack.deserializeBytes(
+                                    Base64.getDecoder().decode((String) fixture.get("original")));
+                            Check check = new Check();
+                            check.that(fixture.get("stored").equals(data.getData("stored")),
+                                    "Unverified historical saved count survives separate Paper JVM unchanged");
+                            check.item(original, menu.getItemInSlot(24),
+                                    "All 19 physical output items and typed owner PDC survive restart");
+                            FluffyDoctorReport report = FluffyDoctor.run(true);
+                            check.that(report.getScannedEntries() > 0 && report.getIssuesFound() > 0,
+                                    "Native Doctor again reports unverified reserve after restart");
+                            check.that(fixture.get("stored").equals(data.getData("stored")),
+                                    "Second explicit Doctor repair still never zeros historical reserve");
+                            check.item(original, menu.getItemInSlot(24),
+                                    "Second Doctor repair never consumes or rewrites buffered item PDC");
+                            results.add(check.result("restart-barrel-doctor-invalid-count-preserved"));
+                            return (Void) null;
+                        }));
+            });
+        });
+
         // Serialize the native watering-can item across the process boundary;
         // Paper must reconstruct its own charge PDC and unrelated owner field.
         chain = chain.thenCompose(v -> owner(() -> {
