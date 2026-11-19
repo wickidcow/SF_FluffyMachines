@@ -608,6 +608,16 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                     "real Cargo delivery leaves 95 buffered items and a legitimate zero saved reserve");
             check.that(menu.getItemInSlot(19) == null && menu.getItemInSlot(20) == null,
                     "production barrel ticker absorbs both incoming Cargo deliveries");
+            byte[] firstCargoBytes = menu.getItemInSlot(24).serializeAsBytes();
+            byte[] secondCargoBytes = menu.getItemInSlot(25).serializeAsBytes();
+            FluffyDoctorReport readOnlyDoctor = FluffyDoctor.run(false);
+            check.that(readOnlyDoctor.getDetails().stream().anyMatch(detail ->
+                    detail.startsWith("Output-only Fluffy Barrels:")),
+                    "Read-only Fluffy Doctor distinguishes zero saved reserve from buffered Cargo stock");
+            check.that(barrel.getStored(destination) == 0
+                    && Arrays.equals(firstCargoBytes, menu.getItemInSlot(24).serializeAsBytes())
+                    && Arrays.equals(secondCargoBytes, menu.getItemInSlot(25).serializeAsBytes()),
+                    "Doctor output-only receipt never changes actual saved quantity or output bytes");
             writeJson(getDataFolder().toPath().resolve("barrel-real-cargo-restart-fixture.json"),
                     Map.of("x", base.getBlockX(), "y", base.getBlockY(), "z", base.getBlockZ(),
                             "id", barrelItem.getId(), "item", materialItem.getId(), "total", 95));
@@ -1037,6 +1047,14 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                             && Long.valueOf(9876543210123L).equals(menu.getItemInSlot(24).getItemMeta()
                                 .getPersistentDataContainer().get(privateQuantityKey, PersistentDataType.LONG)),
                     "Native serialized old/new bytes, typed owner, and quantity PDC survive warning unchanged");
+            FluffyDoctorReport rejectedDoctor = FluffyDoctor.run(false);
+            check.that(rejectedDoctor.getDetails().stream().anyMatch(detail ->
+                    detail.contains("12 Cargo input item(s) have a different strict item identity")),
+                    "Read-only Fluffy Doctor reports actual unmerged historical/new Cargo units");
+            check.that(Arrays.equals(pendingBeforeWarning, menu.getItemInSlot(19).serializeAsBytes())
+                    && Arrays.equals(outputBeforeWarning, menu.getItemInSlot(24).serializeAsBytes())
+                    && barrel.getStored(block) == 0,
+                    "Doctor mismatch receipt leaves both old/new item bytes and reserve untouched");
             check.item(historicalBefore, historical,
                     "Original historical source stack survives all native barrel operations");
             check.item(currentBefore, current,
