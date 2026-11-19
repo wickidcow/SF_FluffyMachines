@@ -657,17 +657,48 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
         } else {
             long total = contents.amount();
             ItemStack display = menu.getItemInSlot(DISPLAY_SLOT);
-            int stackSize = display == null ? 64 : Math.max(1, display.getMaxStackSize());
-            String percent = capacity > 0 ? doubleRoundAndFade((double) total / capacity * 100) : "0";
-            String stacks = doubleRoundAndFade((double) total / stackSize);
-            expected = new CustomItemStack(Material.LIME_STAINED_GLASS_PANE,
-                    "&6Stored items: &e" + total + " / " + capacity,
-                    "&b" + stacks + " stacks &8| &7" + percent + "&7%",
-                    "&7Includes both output slots");
+            long rejected = incompatiblePendingInputCount(menu, display);
+            if (rejected > 0) {
+                // Cargo can deliver into input slots while the barrel correctly refuses
+                // to combine different owner/PDC/Adventure identities. The saved reserve
+                // may legitimately be zero because the output buffers hold all stock.
+                // Make the pending items visible without consuming or normalizing them.
+                expected = new CustomItemStack(Material.ORANGE_STAINED_GLASS_PANE,
+                        "&6Cargo input identity mismatch",
+                        "&7Stored items: &e" + total + " / " + capacity,
+                        "&e" + rejected + " item(s) remain in Cargo input slots",
+                        "&cItem metadata differs from registered contents",
+                        "&7Nothing was consumed or repaired");
+            } else {
+                int stackSize = display == null ? 64 : Math.max(1, display.getMaxStackSize());
+                String percent = capacity > 0 ? doubleRoundAndFade((double) total / capacity * 100) : "0";
+                String stacks = doubleRoundAndFade((double) total / stackSize);
+                expected = new CustomItemStack(Material.LIME_STAINED_GLASS_PANE,
+                        "&6Stored items: &e" + total + " / " + capacity,
+                        "&b" + stacks + " stacks &8| &7" + percent + "&7%",
+                        "&7Includes both output slots");
+            }
         }
         if (!expected.equals(menu.getItemInSlot(STATUS_SLOT))) {
             menu.replaceExistingItem(STATUS_SLOT, expected);
         }
+    }
+
+    /**
+     * Diagnostic only: this never admits or rewrites pending Cargo items.
+     * Reuse the same strict owner/PDC/presentation match that guards acceptance.
+     */
+    private long incompatiblePendingInputCount(BlockMenu menu, ItemStack display) {
+        if (!isRegisteredItem(display)) return 0L;
+        ItemStack template = Utils.unKeyItem(display);
+        long rejected = 0L;
+        for (int slot : INPUT_SLOTS) {
+            ItemStack candidate = menu.getItemInSlot(slot);
+            if (isRealItem(candidate) && !matchMeta(template, candidate)) {
+                rejected += candidate.getAmount();
+            }
+        }
+        return rejected;
     }
 
     /**
