@@ -597,10 +597,11 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                     .getItemData(menu.getItemInSlot(24)).orElse(null)),
                     "routed Slimefun item identity survives actual network handling");
             ItemStack status = menu.getItemInSlot(22);
-            check.that(status != null && status.hasItemMeta()
+            check.that(status != null && status.getType() == Material.LIME_STAINED_GLASS_PANE
+                    && status.hasItemMeta()
                     && PlainTextComponentSerializer.plainText()
                             .serialize(status.getItemMeta().displayName()).contains("95 /"),
-                    "barrel GUI accurately reports actual Cargo network output and reserve");
+                    "barrel GUI accurately reports 95 compatible Cargo items without a false mismatch");
             check.that(barrel.getStored(destination) == 0
                             && menu.getItemInSlot(24) != null && menu.getItemInSlot(24).getAmount() == 64
                             && menu.getItemInSlot(25) != null && menu.getItemInSlot(25).getAmount() == 31,
@@ -998,6 +999,23 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
             check.that(barrel.getStoredItem(block).isSimilar(historical)
                         && !barrel.getStoredItem(block).isSimilar(current),
                     "Barrel does not silently rewrite a noncosmetic historical display template");
+            // Show a truthful warning at the exact GUI source, not a misleading
+            // "0 stored" success pane while incompatible Cargo input is pending.
+            barrel.updateMenu(block, menu, true, barrel.getCapacity(block));
+            ItemStack warning = menu.getItemInSlot(22);
+            List<Component> warningLore = warning == null || !warning.hasItemMeta()
+                    ? null : warning.getItemMeta().lore();
+            check.that(warning != null && warning.getType() == Material.ORANGE_STAINED_GLASS_PANE
+                            && warningLore != null && warningLore.stream().anyMatch(line ->
+                                PlainTextComponentSerializer.plainText().serialize(line)
+                                        .contains("12 item(s) remain in Cargo input slots")),
+                    "Native GUI warns about 12 pending incompatible items without claiming they were stored");
+            check.that(menu.getItemInSlot(19) != null
+                            && menu.getItemInSlot(19).getAmount() == 12
+                            && menu.getItemInSlot(19).isSimilar(current)
+                            && barrel.visibleContents(block).amount() == 37L
+                            && barrel.getStored(block) == 0,
+                    "Rendering mismatch warning never consumes Cargo input or changes real stored units");
             check.item(historicalBefore, historical,
                     "Original historical source stack survives all native barrel operations");
             check.item(currentBefore, current,
