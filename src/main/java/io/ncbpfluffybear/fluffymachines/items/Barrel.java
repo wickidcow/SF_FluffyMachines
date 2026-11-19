@@ -450,6 +450,25 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
                 this::matchMeta, ItemStack::getAmount);
     }
 
+    /**
+     * Read-only inspection of the same loaded menu, saved reserve and strict
+     * identity predicate that the normal Barrel display uses. Doctor must not
+     * infer that a zero saved reserve means that physical outputs are empty.
+     * This method does not edit, consume or canonicalize any item.
+     */
+    public BarrelContents<ItemStack> inspectForDoctor(BlockMenu menu, int stored) {
+        return inspectContents(menu, stored);
+    }
+
+    /**
+     * Only classify real Cargo input items that production acceptance already
+     * rejects under the exact existing Slimefun ID/PDC/presentation rules.
+     * A missing registered template is not permission to compare by ID alone.
+     */
+    public long incompatiblePendingInputCountForDoctor(BlockMenu menu) {
+        return incompatiblePendingInputCount(menu, menu.getItemInSlot(DISPLAY_SLOT));
+    }
+
     private boolean syncRegistration(BlockMenu menu, Block b, int capacity) {
         BarrelContents<ItemStack> contents = inspectContents(menu, b);
         if (!contents.safe()) return false;

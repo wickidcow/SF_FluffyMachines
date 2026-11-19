@@ -6,6 +6,24 @@ final class BarrelDoctorSafety {
     private BarrelDoctorSafety() {}
 
     /**
+     * A zero *saved reserve* can still have physical output stock (for
+     * example after Cargo accepts 64 + 31 items into the two output slots).
+     * Return only a verified, identity-consistent output quantity. Never
+     * report an unsafe/missing or mismatched template as an empty barrel.
+     *
+     * This diagnostic never rewrites an old item or transfers anything.
+     */
+    static Long confirmedOutputWithZeroReserve(
+            Integer savedReserve,
+            io.ncbpfluffybear.fluffymachines.items.BarrelContents<?> contents) {
+        if (savedReserve == null || savedReserve != 0 || contents == null
+                || !contents.safe() || contents.item() == null || contents.amount() <= 0) {
+            return null;
+        }
+        return contents.amount();
+    }
+
+    /**
      * Capacity repair may only use an independently valid persisted reserve.
      * An empty display item is not evidence of an empty stored quantity.
      * Never infer zero from missing, malformed or negative saved counts.

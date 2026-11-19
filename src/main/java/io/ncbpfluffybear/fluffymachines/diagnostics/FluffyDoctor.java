@@ -3,8 +3,10 @@ package io.ncbpfluffybear.fluffymachines.diagnostics;
 import com.xzavier0722.mc.plugin.slimefun4.storage.controller.BlockDataController;
 import com.xzavier0722.mc.plugin.slimefun4.storage.controller.SlimefunBlockData;
 import com.xzavier0722.mc.plugin.slimefun4.storage.controller.SlimefunChunkData;
+import io.github.thebusybiscuit.slimefun4.api.items.SlimefunItem;
 import io.github.thebusybiscuit.slimefun4.implementation.Slimefun;
 import io.ncbpfluffybear.fluffymachines.items.Barrel;
+import io.ncbpfluffybear.fluffymachines.items.BarrelContents;
 import io.ncbpfluffybear.fluffymachines.items.MiniBarrel;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -113,6 +115,41 @@ public final class FluffyDoctor {
                 report.issue(sfId, blockData,
                         "has " + stored + " stored items but no keyed display item; manual recovery is required");
             }
+
+            // Diagnose the exact saved-reserve + physical-output + pending-Cargo
+            // boundary for loaded barrels. A persisted reserve of zero does NOT
+            // mean that the two output slots are empty. Reuse the production
+            // identity predicate; no blind Slimefun-ID matching or item writes.
+            if (stored != null && menu != null) {
+                SlimefunItem item = SlimefunItem.getById(sfId);
+                if (item instanceof Barrel barrel) {
+                    BarrelContents<ItemStack> contents = barrel.inspectForDoctor(menu, stored);
+                    if (!contents.safe()) {
+                        // The missing template with a positive reserve was
+                        // already reported above. Never double-count it as a
+                        // separate fault or reconstruct any stored identity.
+                        if (!(stored > 0 && emptyDisplay)) {
+                            report.issue(sfId, blockData,
+                                    "saved reserve/output identity unsafe: "
+                                            + contents.rejection().explanation()
+                                            + "; no quantity or item rewrite");
+                        }
+                    } else {
+                        Long verifiedOutput = BarrelDoctorSafety.confirmedOutputWithZeroReserve(
+                                stored, contents);
+                        if (verifiedOutput != null) {
+                            report.notePhysicalOutputOnly(sfId, blockData, verifiedOutput);
+                        }
+                    }
+
+                    long pendingMismatch = barrel.incompatiblePendingInputCountForDoctor(menu);
+                    if (pendingMismatch > 0) {
+                        report.issue(sfId, blockData,
+                                pendingMismatch + " Cargo input item(s) have a different strict item"
+                                        + " identity from the stored template; inputs left untouched");
+                    }
+                }
+            }
         } catch (RuntimeException | LinkageError ex) {
             report.failures++;
             report.detail(locationPrefix(sfId, blockData) + "inspection failed: " + ex.getClass().getSimpleName());
@@ -176,6 +213,9 @@ public final class FluffyDoctor {
         private long issues;
         private long repaired;
         private long failures;
+        private long bufferedOnlyBarrels;
+        private long bufferedOnlyItems;
+        private final List<String> bufferedExamples = new ArrayList<>();
         private final List<String> details = new ArrayList<>();
 
         private void issue(String sfId, SlimefunBlockData blockData, String message) {
@@ -189,7 +229,27 @@ public final class FluffyDoctor {
             }
         }
 
+        private void notePhysicalOutputOnly(
+                String sfId, SlimefunBlockData blockData, long count) {
+            bufferedOnlyBarrels++;
+            bufferedOnlyItems += count;
+            if (bufferedExamples.size() < 4) {
+                bufferedExamples.add(locationPrefix(sfId, blockData)
+                        + "saved reserve=0, verified physical output slots=" + count
+                        + "; this is buffered stock, not lost items");
+            }
+        }
+
         private FluffyDoctorReport freeze() {
+            if (bufferedOnlyBarrels > 0) {
+                detail("Output-only Fluffy Barrels: " + bufferedOnlyBarrels
+                        + " loaded; " + bufferedOnlyItems
+                        + " total item(s) in identity-verified physical output slots"
+                        + " while saved reserve=0. No data was changed.");
+                for (String example : bufferedExamples) {
+                    detail(example);
+                }
+            }
             return new FluffyDoctorReport(scanned, issues, repaired, failures, details);
         }
     }
