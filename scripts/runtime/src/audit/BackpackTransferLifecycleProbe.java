@@ -948,6 +948,18 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
             current.setAmount(12);
             ItemStack historical = resource.getItem().clone();
             historical.setAmount(37);
+            // An owner's typed metadata is part of the immutable source fixture,
+            // not something a visually identical Adventure name may override.
+            NamespacedKey ownerKey = new NamespacedKey(this, "historical_barrel_owner");
+            NamespacedKey privateQuantityKey = new NamespacedKey(this, "historical_barrel_private_quantity");
+            for (ItemStack source : List.of(current, historical)) {
+                var sourceMeta = source.getItemMeta();
+                sourceMeta.getPersistentDataContainer().set(
+                        ownerKey, PersistentDataType.STRING, "unchanged-owner");
+                sourceMeta.getPersistentDataContainer().set(
+                        privateQuantityKey, PersistentDataType.LONG, 9876543210123L);
+                source.setItemMeta(sourceMeta);
+            }
             var historicalMeta = historical.getItemMeta();
             Component originalName = historicalMeta.displayName();
             if (originalName == null)
@@ -1001,6 +1013,8 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                     "Barrel does not silently rewrite a noncosmetic historical display template");
             // Show a truthful warning at the exact GUI source, not a misleading
             // "0 stored" success pane while incompatible Cargo input is pending.
+            byte[] pendingBeforeWarning = menu.getItemInSlot(19).serializeAsBytes();
+            byte[] outputBeforeWarning = menu.getItemInSlot(24).serializeAsBytes();
             barrel.updateMenu(block, menu, true, barrel.getCapacity(block));
             ItemStack warning = menu.getItemInSlot(22);
             List<Component> warningLore = warning == null || !warning.hasItemMeta()
@@ -1016,6 +1030,13 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                             && barrel.visibleContents(block).amount() == 37L
                             && barrel.getStored(block) == 0,
                     "Rendering mismatch warning never consumes Cargo input or changes real stored units");
+            check.that(Arrays.equals(pendingBeforeWarning, menu.getItemInSlot(19).serializeAsBytes())
+                            && Arrays.equals(outputBeforeWarning, menu.getItemInSlot(24).serializeAsBytes())
+                            && "unchanged-owner".equals(menu.getItemInSlot(19).getItemMeta()
+                                .getPersistentDataContainer().get(ownerKey, PersistentDataType.STRING))
+                            && Long.valueOf(9876543210123L).equals(menu.getItemInSlot(24).getItemMeta()
+                                .getPersistentDataContainer().get(privateQuantityKey, PersistentDataType.LONG)),
+                    "Native serialized old/new bytes, typed owner, and quantity PDC survive warning unchanged");
             check.item(historicalBefore, historical,
                     "Original historical source stack survives all native barrel operations");
             check.item(currentBefore, current,
