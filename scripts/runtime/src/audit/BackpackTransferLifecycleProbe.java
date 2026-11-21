@@ -8,6 +8,12 @@ import com.xzavier0722.mc.plugin.slimefun4.storage.controller.ProfileDataControl
 import com.xzavier0722.mc.plugin.slimefun4.storage.controller.SlimefunBlockData;
 import com.xzavier0722.mc.plugin.slimefun4.storage.util.LocationUtils;
 import com.xzavier0722.mc.plugin.slimefun4.storage.util.StorageCacheUtils;
+import io.github.thebusybiscuit.slimefun4.api.items.ItemGroup;
+import io.github.thebusybiscuit.slimefun4.api.items.SlimefunItemStack;
+import io.github.thebusybiscuit.slimefun4.api.items.virtual.VirtualItemHandler;
+import io.github.thebusybiscuit.slimefun4.api.items.virtual.VirtualItemHandler.ItemResult;
+import io.github.thebusybiscuit.slimefun4.api.items.virtual.VirtualItemHandler.ConsumeContext;
+import io.github.thebusybiscuit.slimefun4.api.recipes.RecipeType;
 import io.github.thebusybiscuit.slimefun4.api.items.SlimefunItem;
 import io.github.thebusybiscuit.slimefun4.api.player.PlayerBackpack;
 import io.github.thebusybiscuit.slimefun4.core.attributes.EnergyNetComponent;
@@ -126,6 +132,8 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                 new Scenario("foundry-native-bucket-metadata", this::foundryNativeBucketMetadata),
                 new Scenario("paxel-native-item-metadata", this::paxelNativeItemMetadata),
                 new Scenario("barrel-display-and-quantities", this::barrelDisplayLifecycle),
+                new Scenario("barrel-native-input-consumption", this::barrelNativeInputConsumption),
+                new Scenario("barrel-native-virtual-replacement", this::barrelNativeVirtualReplacement),
                 new Scenario("barrel-quick-withdraw-two-outputs", this::barrelQuickWithdrawTwoOutputs),
                 new Scenario("barrel-native-unsafe-state-reason", this::barrelNativeUnsafeStateReason),
                 new Scenario("barrel-doctor-invalid-count-preserved", this::barrelDoctorInvalidCountPreserved),
@@ -1377,6 +1385,190 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                     "all 13 second-only buffered items are conserved");
             check.note("Real production Barrel.extract and BlockMenu on native Paper; "
                     + "player inventory is a minimal API test double, not a connected-player interaction.");
+            return check;
+        });
+    }
+
+    /**
+     * On a real Paper server, exercise the exact void-returning BlockMenu.consumeItem
+     * used by the production Barrel. Do not infer credits from requested amounts:
+     * compare the persisted slot, typed PDC and total remaining physical stock.
+     * This is a contract probe, not a migration or barrel accounting rewrite.
+     */
+    private CompletableFuture<Check> barrelNativeInputConsumption() {
+        return owner(() -> {
+            Check check = new Check();
+            fixtureNumber++;
+            Location location = new Location(world, 1536 + fixtureNumber * 128, 64, 1536);
+            Chunk chunk = holdChunk(location);
+            blocks.getChunkData(chunk);
+            SlimefunItem sfBarrel = SlimefunItem.getById("SMALL_FLUFFY_BARREL");
+            SlimefunItem sfMaterial = SlimefunItem.getById("REINFORCED_PLATE");
+            if (!(sfBarrel instanceof Barrel barrel) || sfMaterial == null) {
+                throw new IllegalStateException("Native barrel input consumption fixture missing");
+            }
+            Block block = location.getBlock();
+            block.setType(sfBarrel.getItem().getType(), false);
+            SlimefunBlockData data = blocks.createBlock(location, sfBarrel.getId());
+            BlockMenu menu = data.getBlockMenu();
+            if (menu == null || !data.isDataLoaded()) {
+                throw new IllegalStateException("Native barrel input menu is unavailable");
+            }
+            barrel.setStored(block, 0);
+            ItemStack incoming = sfMaterial.getItem().clone();
+            incoming.setAmount(13);
+            NamespacedKey ownerKey = new NamespacedKey(this, "barrel_input_owner_fixture");
+            var meta = incoming.getItemMeta();
+            meta.getPersistentDataContainer().set(ownerKey, PersistentDataType.STRING, "original-owner");
+            incoming.setItemMeta(meta);
+            Slimefun.getItemDataService().setItemData(incoming, sfMaterial.getId());
+            byte[] historicalSnapshot = incoming.serializeAsBytes();
+
+            // The physical slot, not a detached Java reference, is authoritative.
+            menu.replaceExistingItem(19, incoming.clone());
+            ItemStack before = menu.getItemInSlot(19).clone();
+            long beforeChange = menu.captureChangeSequence();
+            menu.consumeItem(19, 5);
+            ItemStack after = menu.getItemInSlot(19);
+            ItemStack physical = menu.toInventory().getItem(19);
+            check.that(after != null && physical != null
+                            && after.getAmount() == 8 && physical.getAmount() == 8,
+                    "native void consumeItem removes five items from the physical input slot");
+            check.that(after != null && before.isSimilar(after),
+                    "partial consumption preserves exact component and typed PDC identity");
+            check.that(after != null && "original-owner".equals(after.getItemMeta()
+                            .getPersistentDataContainer().get(ownerKey, PersistentDataType.STRING)),
+                    "native consumption preserves typed owner PDC without rewriting it");
+            check.that(after != null && sfMaterial.getId().equals(
+                            Slimefun.getItemDataService().getItemData(after).orElse(null)),
+                    "native consumption preserves original Slimefun ID");
+            check.that(Arrays.equals(historicalSnapshot, incoming.serializeAsBytes()),
+                    "observations never mutate the original serialized snapshot");
+            check.that(menu.captureChangeSequence() > beforeChange,
+                    "partial consumption is marked for persistence");
+            check.that(before.getAmount() == 13 && after != null
+                            && before.getAmount() == 5 + after.getAmount(),
+                    "observed five consumed and eight remaining conserve original thirteen");
+            check.that(barrel.getStored(block) == 0,
+                    "raw BlockMenu consumption cannot manufacture barrel reserve credits");
+
+            // An invalid empty-slot request must not create credits or mark dirty.
+            long beforeEmpty = menu.captureChangeSequence();
+            boolean emptySlotThrew = false;
+            try {
+                menu.consumeItem(20, 7);
+            } catch (NullPointerException legacyEmptySlotFailure) {
+                // Pinned Slimefun Legacy 4.1.71 delegates an empty slot to
+                // Dough ItemUtils.consumeItem, which dereferences a null item.
+                // Record the API hazard without weakening the conservation gate.
+                emptySlotThrew = true;
+            }
+            check.that(menu.getItemInSlot(20) == null
+                            && menu.captureChangeSequence() == beforeEmpty
+                            && barrel.getStored(block) == 0,
+                    "empty-slot consume cannot create items or barrel reserve credits");
+            check.note("Pinned core empty-slot consumeItem threw NullPointerException: " + emptySlotThrew
+                    + "; callers must guard empty slots before invoking the void API.");
+
+            // Actual production ticker absorbs the eight remaining items.
+            sfBarrel.getBlockTicker().tick(block, sfBarrel, data);
+            check.that(menu.getItemInSlot(19) == null
+                            && barrel.visibleContents(block).safe()
+                            && barrel.visibleContents(block).amount() == 8L,
+                    "production barrel absorbs exactly the eight remaining physical items");
+            ItemStack output = menu.getItemInSlot(24);
+            check.that(output != null && output.getAmount() == 8 && before.isSimilar(output),
+                    "production barrel output preserves original rich item identity");
+            check.that(output != null && "original-owner".equals(output.getItemMeta()
+                            .getPersistentDataContainer().get(ownerKey, PersistentDataType.STRING)),
+                    "barrel output retains typed owner PDC after real input consumption");
+            return check;
+        });
+    }
+
+    /**
+     * A virtual-item handler can replace a slot with a different rich identity
+     * while keeping the same Slimefun ID and quantity. This is not proof of any
+     * physical consumption, so the production barrel must NOT credit storage.
+     */
+    private CompletableFuture<Check> barrelNativeVirtualReplacement() {
+        return owner(() -> {
+            Check check = new Check();
+            fixtureNumber++;
+            Location location = new Location(world, 1536 + fixtureNumber * 128, 64, 1536);
+            Chunk chunk = holdChunk(location);
+            blocks.getChunkData(chunk);
+            SlimefunItem sfBarrel = SlimefunItem.getById("SMALL_FLUFFY_BARREL");
+            if (!(sfBarrel instanceof Barrel barrel)) {
+                throw new IllegalStateException("Native barrel virtual replacement fixture missing");
+            }
+            Block block = location.getBlock();
+            block.setType(sfBarrel.getItem().getType(), false);
+            SlimefunBlockData data = blocks.createBlock(location, sfBarrel.getId());
+            BlockMenu menu = data.getBlockMenu();
+            if (menu == null || !data.isDataLoaded()) {
+                throw new IllegalStateException("Native virtual replacement menu unavailable");
+            }
+            barrel.setStored(block, 0);
+
+            final String id = "TEST_FLUFFY_BARREL_VIRTUAL_OWNER_V82";
+            NamespacedKey ownerKey = new NamespacedKey(this, "barrel_virtual_owner_fixture");
+            SlimefunItem virtualItem = new SlimefunItem(
+                    new ItemGroup(new NamespacedKey(this, "barrel_virtual_owner_group"),
+                            new ItemStack(Material.BOOK)),
+                    new SlimefunItemStack(id, Material.DIAMOND, "Virtual owner fixture"),
+                    RecipeType.ENHANCED_CRAFTING_TABLE,
+                    new ItemStack[9]);
+            java.util.concurrent.atomic.AtomicInteger handlerCalls = new java.util.concurrent.atomic.AtomicInteger();
+            virtualItem.addItemHandler(new VirtualItemHandler() {
+                @Override
+                public boolean isVirtualItem(ItemStack stack) {
+                    return stack != null && stack.getType() == Material.DIAMOND
+                            && id.equals(Slimefun.getItemDataService()
+                                    .getItemData(stack).orElse(null));
+                }
+
+                @Override
+                public ItemResult consume(ItemStack stack, int amount, boolean replaceConsumables,
+                                          ConsumeContext context) {
+                    handlerCalls.incrementAndGet();
+                    ItemStack changed = stack.clone();
+                    var changedMeta = changed.getItemMeta();
+                    changedMeta.getPersistentDataContainer().set(
+                            ownerKey, PersistentDataType.STRING, "different-owner");
+                    changed.setItemMeta(changedMeta);
+                    return ItemResult.handled(changed);
+                }
+            });
+            Slimefun.getRegistry().getSlimefunItemIds().put(id, virtualItem);
+
+            ItemStack incoming = new ItemStack(Material.DIAMOND, 9);
+            Slimefun.getItemDataService().setItemData(incoming, id);
+            var meta = incoming.getItemMeta();
+            meta.getPersistentDataContainer().set(ownerKey, PersistentDataType.STRING, "original-owner");
+            incoming.setItemMeta(meta);
+            check.that(Slimefun.getItemStackService().isVirtualItem(incoming),
+                    "native core resolves the real virtual item handler");
+            byte[] originalBytes = incoming.serializeAsBytes();
+            menu.replaceExistingItem(19, incoming.clone());
+            sfBarrel.getBlockTicker().tick(block, sfBarrel, data);
+            ItemStack remains = menu.getItemInSlot(19);
+            check.that(handlerCalls.get() == 1,
+                    "real BlockMenu.consumeItem invokes the virtual handler exactly once");
+            check.that(remains != null && remains.getAmount() == 9,
+                    "virtual replacement preserves all nine physical input items");
+            check.that(remains != null && "different-owner".equals(remains.getItemMeta()
+                            .getPersistentDataContainer().get(ownerKey, PersistentDataType.STRING)),
+                    "actual replacement has different typed PDC despite the same Slimefun ID");
+            check.that(remains != null && id.equals(
+                            Slimefun.getItemDataService().getItemData(remains).orElse(null)),
+                    "virtual replacement still has the same Slimefun ID");
+            check.that(barrel.getStored(block) == 0
+                            && barrel.visibleContents(block).safe()
+                            && barrel.visibleContents(block).amount() == 0,
+                    "production barrel refuses phantom credits for virtual owner replacement");
+            check.that(Arrays.equals(originalBytes, incoming.serializeAsBytes()),
+                    "virtual replacement never mutates the original source snapshot");
             return check;
         });
     }
