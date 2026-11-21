@@ -76,6 +76,10 @@ jobs:
         run: python3 -m unittest scripts.test_native_restart_readiness scripts.test_paper_stable_runtime_pin -v
       - name: Verify Doctor migration safety contract
         run: python3 scripts/verify_doctor_migration.py .
+      - name: Diagnose test-runtime Adventure and MockBukkit dependency mediation
+        run: |
+          mvn -B dependency:tree --file pom.xml -Dpaper.version=26.2.build.132-stable -Dslimefun.groupId=com.github.slimefun -Dslimefun.artifactId=Slimefun -Dslimefun.version=ALBION-SNAPSHOT -Dverbose -Dincludes=net.kyori:*,org.mockbukkit.mockbukkit:*,io.papermc.paper:paper-api
+          mvn -B dependency:tree --file pom.xml -Dpaper.version=1.21.11-R0.1-SNAPSHOT -Dslimefun.groupId=com.github.slimefun -Dslimefun.artifactId=Slimefun -Dslimefun.version=ALBION-SNAPSHOT -Dverbose -Dincludes=net.kyori:*,org.mockbukkit.mockbukkit:*,io.papermc.paper:paper-api
       - name: Verify Paper 1.21.11 compile baseline
         run: >-
           mvn -B clean verify --file pom.xml
@@ -83,10 +87,14 @@ jobs:
           -Dslimefun.groupId=com.github.slimefun
           -Dslimefun.artifactId=Slimefun
           -Dslimefun.version=ALBION-SNAPSHOT
+      # MockBukkit 4.110.0 is bound to Adventure 4.x; Paper 26.x uses Adventure 5.x.
+      # Run the full test suite on Paper 1.21.11 above; compile test sources on
+      # newer APIs, then validate real 26.x behavior in pinned native lanes below.
       - name: Verify Paper 26.2 compile compatibility
         run: >-
           mvn -B clean verify --file pom.xml
           -Dpaper.version=26.2.build.132-stable
+          -DskipTests
           -Dslimefun.groupId=com.github.slimefun
           -Dslimefun.artifactId=Slimefun
           -Dslimefun.version=ALBION-SNAPSHOT
@@ -94,6 +102,7 @@ jobs:
         run: >-
           mvn -B clean verify --file pom.xml
           -Dpaper.version=26.3.build.176-stable
+          -DskipTests
           -Dslimefun.groupId=com.github.slimefun
           -Dslimefun.artifactId=Slimefun
           -Dslimefun.version=ALBION-SNAPSHOT

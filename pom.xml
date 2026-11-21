@@ -75,6 +75,8 @@
 
     <dependencies>
         <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>5.13.1</version><scope>test</scope></dependency>
+        <!-- Required by real ItemStack/PDC parity tests; never packaged into the plugin. -->
+        <dependency><groupId>org.mockbukkit.mockbukkit</groupId><artifactId>mockbukkit-v1.21</artifactId><version>4.110.0</version><scope>test</scope></dependency>
         <dependency><groupId>io.papermc.paper</groupId><artifactId>paper-api</artifactId><version>${paper.version}</version><scope>provided</scope></dependency>
         <dependency><groupId>${slimefun.groupId}</groupId><artifactId>${slimefun.artifactId}</artifactId><version>${slimefun.version}</version><scope>provided</scope></dependency>
         <dependency><groupId>com.google.code.findbugs</groupId><artifactId>jsr305</artifactId><version>3.0.2</version><scope>provided</scope></dependency>
