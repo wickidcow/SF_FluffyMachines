@@ -7,7 +7,7 @@ from pathlib import Path
 
 from scripts.immutable_release_guard import MAIN_CLASS, validate_jar, validate_request
 
-VERSION = '26.2.23'
+VERSION = '26.2.24'
 HEAD = 'a' * 40
 DESCRIPTOR = f'''name: FluffyMachines
 version: {VERSION}
