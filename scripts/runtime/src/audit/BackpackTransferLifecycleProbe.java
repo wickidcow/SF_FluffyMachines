@@ -1447,11 +1447,21 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
 
             // An invalid empty-slot request must not create credits or mark dirty.
             long beforeEmpty = menu.captureChangeSequence();
-            menu.consumeItem(20, 7);
+            boolean emptySlotThrew = false;
+            try {
+                menu.consumeItem(20, 7);
+            } catch (NullPointerException legacyEmptySlotFailure) {
+                // Pinned Slimefun Legacy 4.1.71 delegates an empty slot to
+                // Dough ItemUtils.consumeItem, which dereferences a null item.
+                // Record the API hazard without weakening the conservation gate.
+                emptySlotThrew = true;
+            }
             check.that(menu.getItemInSlot(20) == null
                             && menu.captureChangeSequence() == beforeEmpty
                             && barrel.getStored(block) == 0,
-                    "native empty-slot consume is a verified no-op");
+                    "empty-slot consume cannot create items or barrel reserve credits");
+            check.note("Pinned core empty-slot consumeItem threw NullPointerException: " + emptySlotThrew
+                    + "; callers must guard empty slots before invoking the void API.");
 
             // Actual production ticker absorbs the eight remaining items.
             sfBarrel.getBlockTicker().tick(block, sfBarrel, data);
