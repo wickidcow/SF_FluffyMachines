@@ -126,6 +126,7 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                 new Scenario("foundry-native-bucket-metadata", this::foundryNativeBucketMetadata),
                 new Scenario("paxel-native-item-metadata", this::paxelNativeItemMetadata),
                 new Scenario("barrel-display-and-quantities", this::barrelDisplayLifecycle),
+                new Scenario("barrel-native-input-consumption", this::barrelNativeInputConsumption),
                 new Scenario("barrel-quick-withdraw-two-outputs", this::barrelQuickWithdrawTwoOutputs),
                 new Scenario("barrel-native-unsafe-state-reason", this::barrelNativeUnsafeStateReason),
                 new Scenario("barrel-doctor-invalid-count-preserved", this::barrelDoctorInvalidCountPreserved),
@@ -1377,6 +1378,93 @@ public final class BackpackTransferLifecycleProbe extends JavaPlugin {
                     "all 13 second-only buffered items are conserved");
             check.note("Real production Barrel.extract and BlockMenu on native Paper; "
                     + "player inventory is a minimal API test double, not a connected-player interaction.");
+            return check;
+        });
+    }
+
+    /**
+     * On a real Paper server, exercise the exact void-returning BlockMenu.consumeItem
+     * used by the production Barrel. Do not infer credits from requested amounts:
+     * compare the persisted slot, typed PDC and total remaining physical stock.
+     * This is a contract probe, not a migration or barrel accounting rewrite.
+     */
+    private CompletableFuture<Check> barrelNativeInputConsumption() {
+        return owner(() -> {
+            Check check = new Check();
+            fixtureNumber++;
+            Location location = new Location(world, 1536 + fixtureNumber * 128, 64, 1536);
+            Chunk chunk = holdChunk(location);
+            blocks.getChunkData(chunk);
+            SlimefunItem sfBarrel = SlimefunItem.getById("SMALL_FLUFFY_BARREL");
+            SlimefunItem sfMaterial = SlimefunItem.getById("REINFORCED_PLATE");
+            if (!(sfBarrel instanceof Barrel barrel) || sfMaterial == null) {
+                throw new IllegalStateException("Native barrel input consumption fixture missing");
+            }
+            Block block = location.getBlock();
+            block.setType(sfBarrel.getItem().getType(), false);
+            SlimefunBlockData data = blocks.createBlock(location, sfBarrel.getId());
+            BlockMenu menu = data.getBlockMenu();
+            if (menu == null || !data.isDataLoaded()) {
+                throw new IllegalStateException("Native barrel input menu is unavailable");
+            }
+            barrel.setStored(block, 0);
+            ItemStack incoming = sfMaterial.getItem().clone();
+            incoming.setAmount(13);
+            NamespacedKey ownerKey = new NamespacedKey(this, "barrel_input_owner_fixture");
+            var meta = incoming.getItemMeta();
+            meta.getPersistentDataContainer().set(ownerKey, PersistentDataType.STRING, "original-owner");
+            incoming.setItemMeta(meta);
+            Slimefun.getItemDataService().setItemData(incoming, sfMaterial.getId());
+            byte[] historicalSnapshot = incoming.serializeAsBytes();
+
+            // The physical slot, not a detached Java reference, is authoritative.
+            menu.replaceExistingItem(19, incoming.clone());
+            ItemStack before = menu.getItemInSlot(19).clone();
+            long beforeChange = menu.captureChangeSequence();
+            menu.consumeItem(19, 5);
+            ItemStack after = menu.getItemInSlot(19);
+            ItemStack physical = menu.toInventory().getItem(19);
+            check.that(after != null && physical != null
+                            && after.getAmount() == 8 && physical.getAmount() == 8,
+                    "native void consumeItem removes five items from the physical input slot");
+            check.that(after != null && before.isSimilar(after),
+                    "partial consumption preserves exact component and typed PDC identity");
+            check.that(after != null && "original-owner".equals(after.getItemMeta()
+                            .getPersistentDataContainer().get(ownerKey, PersistentDataType.STRING)),
+                    "native consumption preserves typed owner PDC without rewriting it");
+            check.that(after != null && sfMaterial.getId().equals(
+                            Slimefun.getItemDataService().getItemData(after).orElse(null)),
+                    "native consumption preserves original Slimefun ID");
+            check.that(Arrays.equals(historicalSnapshot, incoming.serializeAsBytes()),
+                    "observations never mutate the original serialized snapshot");
+            check.that(menu.captureChangeSequence() > beforeChange,
+                    "partial consumption is marked for persistence");
+            check.that(before.getAmount() == 13 && after != null
+                            && before.getAmount() == 5 + after.getAmount(),
+                    "observed five consumed and eight remaining conserve original thirteen");
+            check.that(barrel.getStored(block) == 0,
+                    "raw BlockMenu consumption cannot manufacture barrel reserve credits");
+
+            // An invalid empty-slot request must not create credits or mark dirty.
+            long beforeEmpty = menu.captureChangeSequence();
+            menu.consumeItem(20, 7);
+            check.that(menu.getItemInSlot(20) == null
+                            && menu.captureChangeSequence() == beforeEmpty
+                            && barrel.getStored(block) == 0,
+                    "native empty-slot consume is a verified no-op");
+
+            // Actual production ticker absorbs the eight remaining items.
+            sfBarrel.getBlockTicker().tick(block, sfBarrel, data);
+            check.that(menu.getItemInSlot(19) == null
+                            && barrel.visibleContents(block).safe()
+                            && barrel.visibleContents(block).amount() == 8L,
+                    "production barrel absorbs exactly the eight remaining physical items");
+            ItemStack output = menu.getItemInSlot(24);
+            check.that(output != null && output.getAmount() == 8 && before.isSimilar(output),
+                    "production barrel output preserves original rich item identity");
+            check.that(output != null && "original-owner".equals(output.getItemMeta()
+                            .getPersistentDataContainer().get(ownerKey, PersistentDataType.STRING)),
+                    "barrel output retains typed owner PDC after real input consumption");
             return check;
         });
     }
