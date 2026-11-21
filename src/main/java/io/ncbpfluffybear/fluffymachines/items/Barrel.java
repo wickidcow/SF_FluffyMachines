@@ -355,14 +355,11 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
         }
         if (!matchMeta(Utils.unKeyItem(display), item)) return;
         if (stored < capacity) {
-            // Subtraction avoids overflowing an almost-full integer counter.
-            if (item.getAmount() <= capacity - stored) storeItem(b, inv, slot, item, capacity, stored);
-            else {
-                int amount = capacity - stored;
-                inv.consumeItem(slot, amount);
-                setStored(b, stored + amount);
-                updateMenu(b, inv, false, capacity);
-            }
+            // Only credit the amount actually removed from the physical input.
+            // The void-returning BlockMenu API can reject a consume or return a
+            // virtual replacement; the requested amount is not a receipt.
+            storeItem(b, inv, slot, item, capacity, stored,
+                    Math.min(item.getAmount(), capacity - stored));
         } else if (isTrashEnabled(b)) {
             inv.replaceExistingItem(slot, null);
         }
@@ -400,26 +397,41 @@ public class Barrel extends NonHopperableBlock implements DoubleHologramOwner {
     }
 
     private void registerItem(Block b, BlockMenu inv, int slot, ItemStack item, int capacity, int stored) {
-        int amount = item.getAmount();
-
-        inv.replaceExistingItem(DISPLAY_SLOT, new CustomItemStack(Utils.keyItem(item), 1));
-        // Fit all
-        if (amount <= capacity) {
-            storeItem(b, inv, slot, item, capacity, stored);
-        } else {
-            amount = capacity;
-            inv.consumeItem(slot, amount);
-
-            setStored(b, stored + amount);
-            updateMenu(b, inv, false, capacity);
-        }
+        // Capture the exact original identity before consumeItem can mutate its
+        // backing stack. An unconsumed input must never register an empty barrel.
+        ItemStack registered = new CustomItemStack(Utils.keyItem(item), 1);
+        int credited = verifiedInputConsumption(inv, slot, item, Math.min(item.getAmount(), capacity));
+        if (credited <= 0) return;
+        inv.replaceExistingItem(DISPLAY_SLOT, registered);
+        setStored(b, stored + credited);
+        updateMenu(b, inv, false, capacity);
     }
 
-    private void storeItem(Block b, BlockMenu inv, int slot, ItemStack item, int capacity, int stored) {
-        int amount = item.getAmount();
-        inv.consumeItem(slot, amount);
-        setStored(b, stored + amount);
+    private void storeItem(Block b, BlockMenu inv, int slot, ItemStack item, int capacity,
+                           int stored, int requested) {
+        int credited = verifiedInputConsumption(inv, slot, item, requested);
+        if (credited <= 0) return;
+        setStored(b, stored + credited);
         updateMenu(b, inv, false, capacity);
+    }
+
+    /**
+     * Observe the real BlockMenu slot before and after its void-returning
+     * consumeItem call. Only exact ItemStack identity (including Adventure
+     * components and typed PDC) and a valid physical quantity delta authorize
+     * a credit. Never canonicalize or rewrite stored/historical items.
+     */
+    private int verifiedInputConsumption(BlockMenu inv, int slot, ItemStack expected, int requested) {
+        ItemStack physical = inv.getItemInSlot(slot);
+        if (!isRealItem(physical) || requested <= 0 || requested > physical.getAmount()
+                || !physical.isSimilar(expected)) return -1;
+        ItemStack before = physical.clone();
+        inv.consumeItem(slot, requested);
+        ItemStack after = inv.getItemInSlot(slot);
+        boolean remains = isRealItem(after);
+        int remaining = remains ? after.getAmount() : 0;
+        return BarrelInputAccounting.consumed(before.getAmount(), remaining, requested,
+                !remains || before.isSimilar(after));
     }
     private static boolean isRealItem(ItemStack item) {
         return item != null && !item.getType().isAir() && item.getAmount() > 0;
