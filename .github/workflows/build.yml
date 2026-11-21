@@ -87,10 +87,14 @@ jobs:
           -Dslimefun.groupId=com.github.slimefun
           -Dslimefun.artifactId=Slimefun
           -Dslimefun.version=ALBION-SNAPSHOT
+      # MockBukkit 4.110.0 is bound to Adventure 4.x; Paper 26.x uses Adventure 5.x.
+      # Run the full test suite on Paper 1.21.11 above; compile test sources on
+      # newer APIs, then validate real 26.x behavior in pinned native lanes below.
       - name: Verify Paper 26.2 compile compatibility
         run: >-
           mvn -B clean verify --file pom.xml
           -Dpaper.version=26.2.build.132-stable
+          -DskipTests
           -Dslimefun.groupId=com.github.slimefun
           -Dslimefun.artifactId=Slimefun
           -Dslimefun.version=ALBION-SNAPSHOT
@@ -98,6 +102,7 @@ jobs:
         run: >-
           mvn -B clean verify --file pom.xml
           -Dpaper.version=26.3.build.176-stable
+          -DskipTests
           -Dslimefun.groupId=com.github.slimefun
           -Dslimefun.artifactId=Slimefun
           -Dslimefun.version=ALBION-SNAPSHOT
